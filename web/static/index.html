@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="TradingAgents 多智能体 AI 股票研报" />
+    <title>TradingAgents · AI 股票研报</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="TradingAgents 首页">
+        <span class="brand-mark">T</span>
+        <span>TradingAgents</span>
+      </a>
+      <span class="status-pill"><i></i> AI 研究引擎在线</span>
+    </header>
+
+    <main>
+      <section class="hero" id="hero">
+        <div class="eyebrow">MULTI-AGENT EQUITY RESEARCH</div>
+        <h1>把复杂的市场信息，<br /><span>整理成一份可读的研报。</span></h1>
+        <p class="hero-copy">技术、基本面、新闻与市场情绪并行研究，再经过多空讨论和风险评估，形成有依据的投资参考。</p>
+
+        <form class="search-panel" id="analysis-form">
+          <label class="field ticker-field">
+            <span>股票代码</span>
+            <input id="ticker" name="ticker" value="NVDA" maxlength="24" autocomplete="off" required />
+          </label>
+          <label class="field">
+            <span>分析日期</span>
+            <input id="trade-date" name="trade_date" type="date" required />
+          </label>
+          <label class="field">
+            <span>资产类型</span>
+            <select id="asset-type" name="asset_type">
+              <option value="stock">股票</option>
+              <option value="crypto">加密资产</option>
+            </select>
+          </label>
+          <button class="primary-button" type="submit">
+            <span>生成 AI 研报</span><b>→</b>
+          </button>
+        </form>
+        <p class="form-note" id="form-note">示例：AAPL、NVDA、600519.SS、0700.HK、BTC-USD</p>
+      </section>
+
+      <section class="process-card hidden" id="process" aria-live="polite">
+        <div class="process-copy">
+          <span class="process-kicker">ANALYSIS IN PROGRESS</span>
+          <h2 id="process-title">研究团队正在协作</h2>
+          <p id="process-message">不同视角正在同时阅读市场信息，这通常需要几分钟。</p>
+        </div>
+        <div class="agent-orbit" aria-hidden="true">
+          <div class="orbit orbit-one"></div>
+          <div class="orbit orbit-two"></div>
+          <div class="core"><span></span></div>
+          <div class="agent agent-a">技</div>
+          <div class="agent agent-b">基</div>
+          <div class="agent agent-c">闻</div>
+          <div class="agent agent-d">情</div>
+        </div>
+        <div class="stages" id="stages">
+          <div class="stage active"><i></i><span>收集市场资料</span></div>
+          <div class="stage"><i></i><span>多维分析</span></div>
+          <div class="stage"><i></i><span>多空研究</span></div>
+          <div class="stage"><i></i><span>风险评估</span></div>
+          <div class="stage"><i></i><span>形成研报</span></div>
+        </div>
+      </section>
+
+      <section class="report hidden" id="report">
+        <div class="report-header">
+          <div>
+            <span class="eyebrow">AI RESEARCH REPORT</span>
+            <h2><span id="report-ticker">—</span> 投资研究报告</h2>
+            <p id="report-date"></p>
+          </div>
+          <button class="ghost-button" id="new-analysis">重新分析</button>
+        </div>
+
+        <div class="decision-grid">
+          <article class="decision-card">
+            <span>最终评级</span>
+            <strong id="decision">—</strong>
+            <p id="executive-summary">等待最终结论</p>
+          </article>
+          <article class="metric-card"><span>目标价格</span><strong id="price-target">—</strong></article>
+          <article class="metric-card"><span>参考入场</span><strong id="entry-price">—</strong></article>
+          <article class="metric-card"><span>风险止损</span><strong id="stop-loss">—</strong></article>
+          <article class="metric-card"><span>持有周期</span><strong id="time-horizon">—</strong></article>
+        </div>
+
+        <div class="report-layout">
+          <nav class="report-nav" id="report-nav"></nav>
+          <article class="report-content" id="report-content"></article>
+        </div>
+        <div class="disclaimer">本报告由 AI 基于可用数据自动生成，仅用于研究与信息参考，不构成任何投资建议。市场有风险，决策需谨慎。</div>
+      </section>
+    </main>
+
+    <footer>TradingAgents · Multi-Agent Financial Research Framework</footer>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
