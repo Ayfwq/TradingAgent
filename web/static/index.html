@@ -15,7 +15,10 @@
         <span class="brand-mark">T</span>
         <span>TradingAgents</span>
       </a>
-      <span class="status-pill"><i></i> AI 研究引擎在线</span>
+      <div class="topbar-actions">
+        <button class="model-settings-trigger" id="model-settings-trigger" type="button">模型配置</button>
+        <span class="status-pill"><i></i> AI 研究引擎在线</span>
+      </div>
     </header>
 
     <main>
@@ -40,11 +43,89 @@
               <option value="crypto">加密资产</option>
             </select>
           </label>
+          <label class="field model-field">
+            <span>研究模型</span>
+            <select id="model-profile" name="model_profile_id">
+              <option value="">当前系统配置</option>
+            </select>
+          </label>
           <button class="primary-button" type="submit">
             <span>生成 AI 研报</span><b>→</b>
           </button>
         </form>
-        <p class="form-note" id="form-note">示例：AAPL、NVDA、600519.SS、0700.HK、BTC-USD</p>
+        <div class="search-helper-row">
+          <p class="form-note" id="form-note">示例：AAPL、NVDA、600519.SS、0700.HK、BTC-USD</p>
+          <button class="locator-trigger" id="locator-trigger" type="button"><span>✦</span> 不知道代码？让 AI 帮你找公司</button>
+        </div>
+
+        <section class="locator-panel hidden" id="locator-panel" aria-label="AI 股票定位助手">
+          <div class="locator-heading">
+            <div>
+              <span class="process-kicker">AI LISTING FINDER</span>
+              <h2>描述你记得的那家公司</h2>
+              <p>可以输入公司名称、产品、行业或创始人。AI 只负责理解描述，股票代码会经过真实证券目录验证。</p>
+            </div>
+            <button class="locator-close" id="locator-close" type="button" aria-label="关闭股票定位助手">×</button>
+          </div>
+          <form class="locator-form" id="locator-form">
+            <label>
+              <span>公司名称或描述</span>
+              <textarea id="company-query" maxlength="300" rows="3" placeholder="例如：做显卡和 AI 芯片的美国公司"></textarea>
+            </label>
+            <label class="market-filter">
+              <span>上市市场</span>
+              <select id="company-market">
+                <option value="auto">自动识别</option>
+                <option value="a_share">A 股</option>
+                <option value="hk">港股</option>
+                <option value="us">美股</option>
+              </select>
+            </label>
+            <button class="locator-search-button" type="submit"><span>查找上市公司</span><b>⌕</b></button>
+          </form>
+          <div class="locator-state hidden" id="locator-state">
+            <div class="search-pulse"><i></i><i></i><i></i></div>
+            <span>正在理解描述并核对证券目录…</span>
+          </div>
+          <div class="locator-results" id="locator-results" aria-live="polite"></div>
+        </section>
+
+        <section class="model-settings hidden" id="model-settings" aria-label="模型配置中心">
+          <div class="model-settings-heading">
+            <div>
+              <span class="process-kicker">MODEL CONTROL CENTER</span>
+              <h2>添加并选择你的 AI 模型</h2>
+              <p>保存多个第三方或自定义 Endpoint；可自动读取可用模型、测试连通性，并用于后续研报。</p>
+            </div>
+            <button class="locator-close" id="model-settings-close" type="button" aria-label="关闭模型配置">×</button>
+          </div>
+          <div class="model-settings-layout">
+            <aside class="saved-profiles">
+              <div class="saved-profiles-title"><span>已保存配置</span><button id="new-model-profile" type="button">＋ 添加</button></div>
+              <div id="model-profile-list" class="model-profile-list"><p class="profile-empty">正在读取配置…</p></div>
+            </aside>
+            <form id="model-profile-form" class="model-profile-form">
+              <input id="editing-profile-id" type="hidden" />
+              <div class="model-form-head"><strong id="model-form-title">新增模型 Endpoint</strong><span id="model-form-status"></span></div>
+              <div class="model-form-grid">
+                <label><span>配置名称</span><input id="model-name" maxlength="80" placeholder="例如：我的 DeepSeek" required /></label>
+                <label><span>服务商模板</span><select id="model-template"></select></label>
+                <label class="span-two"><span>Endpoint URL</span><input id="model-base-url" maxlength="300" placeholder="https://example.com/v1" required /></label>
+                <label><span>日常分析模型</span><input id="model-quick" maxlength="160" placeholder="例如：deepseek-chat" required /></label>
+                <label><span>深度推理模型</span><input id="model-deep" maxlength="160" placeholder="留空则与日常模型相同" /></label>
+                <label class="span-two"><span>API Key <small>保存后不会再次显示</small></span><input id="model-api-key" type="password" maxlength="1000" autocomplete="new-password" placeholder="输入新密钥，编辑时留空则保留原密钥" /></label>
+              </div>
+              <p class="model-security-note">密钥仅在服务器端加密保存；选择“自定义”可接入 OpenAI 兼容协议的网关、vLLM 或 Ollama。</p>
+              <div class="model-form-actions">
+                <button class="secondary-button" id="discover-models" type="button">发现模型</button>
+                <button class="secondary-button" id="test-model" type="button">测试连接</button>
+                <button class="secondary-button hidden" id="delete-model-profile" type="button">删除配置</button>
+                <button class="primary-button compact" type="submit"><span>保存配置</span><b>→</b></button>
+              </div>
+              <div id="discovered-models" class="discovered-models hidden"></div>
+            </form>
+          </div>
+        </section>
       </section>
 
       <section class="process-card hidden" id="process" aria-live="polite">

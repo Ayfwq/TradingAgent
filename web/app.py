@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +18,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
+from web.instrument_search import instrument_search_service
+from web.model_profiles import MODEL_TEMPLATES, model_profile_service
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +36,7 @@ class AnalysisRequest(BaseModel):
     analysts: list[Literal["market", "social", "news", "fundamentals"]] = Field(
         default_factory=lambda: ["market", "social", "news", "fundamentals"]
     )
+    model_profile_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("ticker")
     @classmethod
@@ -67,6 +71,29 @@ class AnalysisRecord(BaseModel):
     updated_at: str
     result: dict | None = None
     error: str | None = None
+
+
+class InstrumentSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=300)
+    market: Literal["auto", "a_share", "hk", "us"] = "auto"
+    use_ai: bool = True
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("请输入公司名称、股票代码或公司描述")
+        return normalized
+
+
+class ModelProfilePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    template: str = Field(default="custom", max_length=40)
+    base_url: str = Field(min_length=8, max_length=300)
+    quick_model: str = Field(min_length=1, max_length=160)
+    deep_model: str = Field(default="", max_length=160)
+    api_key: str | None = Field(default=None, max_length=1000)
 
 
 app = FastAPI(
@@ -136,6 +163,11 @@ def _present_result(final_state: dict, decision: str) -> dict:
 def _run_analysis(payload: AnalysisRequest) -> dict:
     config = deepcopy(DEFAULT_CONFIG)
     config["checkpoint_enabled"] = True
+    if payload.model_profile_id:
+        try:
+            config.update(model_profile_service.graph_overrides(payload.model_profile_id))
+        except KeyError as exc:
+            raise ValueError("所选模型配置不存在，请重新选择") from exc
     graph = TradingAgentsGraph(
         selected_analysts=payload.analysts,
         debug=False,
@@ -180,6 +212,80 @@ async def index() -> FileResponse:
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/instruments/search")
+async def search_instruments(payload: InstrumentSearchRequest) -> dict:
+    try:
+        return await asyncio.to_thread(
+            instrument_search_service.search,
+            payload.query,
+            payload.market,
+            use_ai=payload.use_ai,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except requests.RequestException as exc:
+        logger.warning("Instrument directory unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="证券目录暂时不可用，请稍后重试") from exc
+
+
+@app.get("/api/model-templates")
+async def get_model_templates() -> dict:
+    return {"templates": MODEL_TEMPLATES}
+
+
+@app.get("/api/model-profiles")
+async def list_model_profiles() -> dict:
+    return {"profiles": model_profile_service.list()}
+
+
+@app.post("/api/model-profiles", status_code=201)
+async def create_model_profile(payload: ModelProfilePayload) -> dict:
+    try:
+        return {"profile": model_profile_service.save(payload.model_dump())}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/model-profiles/{profile_id}")
+async def update_model_profile(profile_id: str, payload: ModelProfilePayload) -> dict:
+    try:
+        return {"profile": model_profile_service.save(payload.model_dump(), profile_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/model-profiles/{profile_id}", status_code=204)
+async def delete_model_profile(profile_id: str) -> None:
+    try:
+        model_profile_service.delete(profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/model-profiles/{profile_id}/discover")
+async def discover_models(profile_id: str) -> dict:
+    try:
+        return await asyncio.to_thread(model_profile_service.discover, profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except requests.RequestException as exc:
+        logger.info("Model discovery failed for %s: %s", profile_id, exc)
+        raise HTTPException(status_code=502, detail="无法读取模型列表，请检查 Endpoint、密钥和网络") from exc
+
+
+@app.post("/api/model-profiles/{profile_id}/test")
+async def test_model_profile(profile_id: str) -> dict:
+    try:
+        return await asyncio.to_thread(model_profile_service.test, profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except requests.RequestException as exc:
+        logger.info("Model test failed for %s: %s", profile_id, exc)
+        raise HTTPException(status_code=502, detail="模型连接失败，请检查 Endpoint、模型名、密钥或账户余额") from exc
 
 
 @app.post("/api/analyses", status_code=202)

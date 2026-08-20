@@ -171,6 +171,12 @@ class TradingAgentsGraph:
         kwargs = {}
         provider = self.config.get("llm_provider", "").lower()
 
+        # Web model profiles carry a per-profile key. Passing it explicitly is
+        # safe for concurrent users and avoids mutating process-wide env vars.
+        api_key = self.config.get("llm_api_key")
+        if api_key:
+            kwargs["api_key"] = api_key
+
         if provider == "google":
             thinking_level = self.config.get("google_thinking_level")
             if thinking_level:

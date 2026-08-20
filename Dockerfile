@@ -33,7 +33,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
     TRADINGAGENTS_RESULTS_DIR=/data/logs \
     TRADINGAGENTS_CACHE_DIR=/data/cache \
-    TRADINGAGENTS_MEMORY_LOG_PATH=/data/memory/trading_memory.md
+    TRADINGAGENTS_MEMORY_LOG_PATH=/data/memory/trading_memory.md \
+    TRADINGAGENTS_MODEL_SETTINGS_DIR=/data/settings
 
 RUN useradd --create-home --uid 10001 appuser \
     && install -d -m 0755 -o appuser -g appuser /app /data
