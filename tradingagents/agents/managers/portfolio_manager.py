@@ -10,6 +10,8 @@ back gracefully to free-text generation.
 
 from __future__ import annotations
 
+import logging
+
 from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
@@ -20,6 +22,8 @@ from tradingagents.agents.utils.structured import (
     bind_structured,
     invoke_structured_or_freetext,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_portfolio_manager(llm):
@@ -32,6 +36,8 @@ def create_portfolio_manager(llm):
         risk_debate_state = state["risk_debate_state"]
         research_plan = state["investment_plan"]
         trader_plan = state["trader_investment_plan"]
+
+        logger.debug("Portfolio Manager invoked: ticker=%s", state.get("company_of_interest"))
 
         past_context = state.get("past_context", "")
         lessons_line = (
@@ -66,13 +72,18 @@ Be decisive and ground every conclusion in specific evidence from the analysts.
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 
-        final_trade_decision = invoke_structured_or_freetext(
-            structured_llm,
-            llm,
-            prompt,
-            render_pm_decision,
-            "Portfolio Manager",
-        )
+        try:
+            final_trade_decision = invoke_structured_or_freetext(
+                structured_llm,
+                llm,
+                prompt,
+                render_pm_decision,
+                "Portfolio Manager",
+            )
+            logger.debug("Portfolio Manager LLM call completed: output_length=%d", len(final_trade_decision))
+        except Exception as exc:
+            logger.exception("Portfolio Manager LLM call failed: %s", exc)
+            raise
 
         new_risk_debate_state = {
             "judge_decision": final_trade_decision,
@@ -86,6 +97,8 @@ Be decisive and ground every conclusion in specific evidence from the analysts.
             "current_neutral_response": risk_debate_state["current_neutral_response"],
             "count": risk_debate_state["count"],
         }
+
+        logger.debug("Portfolio Manager node return: output_length=%d", len(final_trade_decision))
 
         return {
             "risk_debate_state": new_risk_debate_state,

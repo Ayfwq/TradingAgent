@@ -1,6 +1,9 @@
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from time import monotonic
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -70,12 +73,18 @@ def build_analyst_execution_plan(
     for analyst_key in selected_analysts:
         spec = ANALYST_NODE_SPECS.get(analyst_key)
         if spec is None:
+            logger.error("Unknown analyst key requested: %s", analyst_key)
             raise ValueError(f"unknown analyst key: {analyst_key}")
         specs.append(spec)
 
     if not specs:
+        logger.error("Analyst execution plan requires at least one analyst")
         raise ValueError("at least one analyst must be selected")
 
+    logger.debug(
+        "Analyst execution plan built: %s",
+        ", ".join(spec.agent_node for spec in specs),
+    )
     return AnalystExecutionPlan(specs=specs)
 
 

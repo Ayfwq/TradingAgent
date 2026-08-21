@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from rich.console import Console
 from cli.models import AnalystType, AssetType
 from tradingagents.llm_clients.api_key_env import get_api_key_env
 from tradingagents.llm_clients.model_catalog import get_model_options
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 
@@ -59,7 +62,9 @@ def get_ticker() -> str:
         console.print("\n[red]No ticker symbol provided. Exiting...[/red]")
         exit(1)
 
-    return normalize_ticker_symbol(ticker) if ticker.strip() else "SPY"
+    resolved = normalize_ticker_symbol(ticker) if ticker.strip() else "SPY"
+    logger.debug("get_ticker resolved to %r", resolved)
+    return resolved
 
 
 def normalize_ticker_symbol(ticker: str) -> str:
@@ -75,6 +80,7 @@ def normalize_ticker_symbol(ticker: str) -> str:
 
         return normalize_symbol(ticker)
     except Exception:
+        logger.warning("normalize_symbol unavailable for %r; falling back to upper-case", ticker)
         return ticker.strip().upper()
 
 
@@ -83,7 +89,9 @@ def detect_asset_type(ticker: str) -> AssetType:
     crypto (#981/#982), matching what the data path will actually fetch."""
     canonical = normalize_ticker_symbol(ticker)
     if canonical.endswith(CRYPTO_SUFFIXES):
+        logger.debug("detect_asset_type(%r) -> %s (crypto suffix)", ticker, AssetType.CRYPTO.value)
         return AssetType.CRYPTO
+    logger.debug("detect_asset_type(%r) -> %s", ticker, AssetType.STOCK.value)
     return AssetType.STOCK
 
 
@@ -129,11 +137,13 @@ def get_analysis_date() -> str:
         console.print("\n[red]No date provided. Exiting...[/red]")
         exit(1)
 
+    logger.debug("get_analysis_date resolved to %s", date.strip())
     return date.strip()
 
 
 def select_analysts(asset_type: AssetType = AssetType.STOCK) -> list[AnalystType]:
     """Select analysts using an interactive checkbox."""
+    logger.debug("select_analysts asset_type=%s", asset_type.value)
     available_analysts = filter_analysts_for_asset_type(
         [value for _, value in ANALYST_ORDER],
         asset_type,
@@ -166,6 +176,7 @@ def select_analysts(asset_type: AssetType = AssetType.STOCK) -> list[AnalystType
 
 def select_research_depth() -> int:
     """Select research depth using an interactive selection."""
+    logger.debug("select_research_depth invoked")
 
     # Define research depth options with their corresponding values
     DEPTH_OPTIONS = [
@@ -220,8 +231,10 @@ def _fetch_openrouter_models() -> list[tuple[str, str]]:
         # API currently returns this order, but sort explicitly so the prompt's
         # "latest available" label holds regardless of response ordering.
         models.sort(key=lambda m: m.get("created") or 0, reverse=True)
+        logger.debug("Fetched %d OpenRouter models", len(models))
         return [(m.get("name") or m["id"], m["id"]) for m in models]
     except Exception as e:
+        logger.exception("Failed to fetch OpenRouter models")
         console.print(f"\n[yellow]Could not fetch OpenRouter models: {e}[/yellow]")
         return []
 
@@ -233,6 +246,7 @@ def _require_text(message: str, hint: str) -> str:
     exit-on-cancel behavior of the other required selections so a cancelled
     prompt never returns an empty model/deployment that would fail downstream.
     """
+    logger.debug("_require_text prompt: %s", message)
     response = questionary.text(
         message,
         validate=lambda x: len(x.strip()) > 0 or hint,
@@ -249,6 +263,7 @@ def select_openrouter_model(mode: str) -> str:
     ``mode`` ("quick"/"deep") labels the prompt so the two consecutive
     OpenRouter selections are distinguishable, like the other providers (#1000).
     """
+    logger.debug("select_openrouter_model mode=%s", mode)
     models = _fetch_openrouter_models()  # newest first
     # Prefer the newest from mainstream providers so the shortlist isn't crowded
     # out by niche/experimental releases; fall back to all if none match.
@@ -291,6 +306,7 @@ def _prompt_custom_model_id() -> str:
 
 def _select_model(provider: str, mode: str) -> str:
     """Select a model for the given provider and mode (quick/deep)."""
+    logger.debug("_select_model provider=%s mode=%s", provider, mode)
     if provider.lower() == "openrouter":
         return select_openrouter_model(mode)
 
@@ -328,11 +344,13 @@ def _select_model(provider: str, mode: str) -> str:
 
 def select_shallow_thinking_agent(provider) -> str:
     """Select shallow thinking llm engine using an interactive selection."""
+    logger.debug("select_shallow_thinking_agent provider=%s", provider)
     return _select_model(provider, "quick")
 
 
 def select_deep_thinking_agent(provider) -> str:
     """Select deep thinking llm engine using an interactive selection."""
+    logger.debug("select_deep_thinking_agent provider=%s", provider)
     return _select_model(provider, "deep")
 
 def _llm_provider_table() -> list[tuple[str, str, str | None]]:
@@ -385,11 +403,15 @@ def resolve_backend_url(
     provider was chosen — interactively or from the environment (#978).
     Otherwise the menu/region URL, then the provider's default.
     """
+    logger.debug(
+        "resolve_backend_url provider=%s menu_url=%s env_url=%s", provider, menu_url, env_url
+    )
     return env_url or menu_url or provider_default_url(provider)
 
 
 def prompt_openai_compatible_url() -> str:
     """Prompt for a custom OpenAI-compatible endpoint base URL."""
+    logger.debug("prompt_openai_compatible_url invoked")
     url = questionary.text(
         "Enter the OpenAI-compatible base URL "
         "(e.g. http://localhost:8000/v1 for vLLM, http://localhost:1234/v1 for LM Studio):",
@@ -404,6 +426,7 @@ def prompt_openai_compatible_url() -> str:
 
 def select_llm_provider() -> tuple[str, str | None]:
     """Select the LLM provider and its API endpoint."""
+    logger.debug("select_llm_provider invoked")
     PROVIDERS = _llm_provider_table()
 
     choice = questionary.select(
@@ -432,6 +455,7 @@ def select_llm_provider() -> tuple[str, str | None]:
 
 def ask_openai_reasoning_effort() -> str:
     """Ask for OpenAI reasoning effort level."""
+    logger.debug("ask_openai_reasoning_effort invoked")
     choices = [
         questionary.Choice("Medium (Default)", "medium"),
         questionary.Choice("High (More thorough)", "high"),
@@ -455,6 +479,7 @@ def ask_anthropic_effort() -> str | None:
     models. The API also accepts "max"; we expose low/medium/high as the
     common selection range.
     """
+    logger.debug("ask_anthropic_effort invoked")
     return questionary.select(
         "Select Effort Level:",
         choices=[
@@ -476,6 +501,7 @@ def ask_gemini_thinking_config() -> str | None:
     Returns thinking_level: "high" or "minimal".
     Client maps to appropriate API param based on model series.
     """
+    logger.debug("ask_gemini_thinking_config invoked")
     return questionary.select(
         "Select Thinking Mode:",
         choices=[
@@ -496,6 +522,7 @@ def ask_glm_region() -> tuple[str, str]:
     Zhipu serves the same GLM models under two brands with separate
     accounts; keys aren't interchangeable. Returns (provider_key, backend_url).
     """
+    logger.debug("ask_glm_region invoked")
     return questionary.select(
         "Select GLM platform:",
         choices=[
@@ -523,6 +550,7 @@ def ask_qwen_region() -> tuple[str, str]:
     a key from one region does NOT authenticate against the other
     (fixes #758). Returns (provider_key, backend_url).
     """
+    logger.debug("ask_qwen_region invoked")
     return questionary.select(
         "Select Qwen region:",
         choices=[
@@ -550,6 +578,7 @@ def ask_minimax_region() -> tuple[str, str]:
     one region does NOT authenticate against the other. Returns
     (provider_key, backend_url).
     """
+    logger.debug("ask_minimax_region invoked")
     return questionary.select(
         "Select MiniMax region:",
         choices=[
@@ -580,6 +609,7 @@ def confirm_ollama_endpoint(url: str) -> None:
     advisory only — we don't reject malformed input, since the user may
     be doing something deliberately unusual (e.g. a reverse-proxy path).
     """
+    logger.debug("confirm_ollama_endpoint url=%s", url)
     from_env = os.environ.get("OLLAMA_BASE_URL")
     origin = " (from OLLAMA_BASE_URL)" if from_env and from_env == url else ""
     console.print(f"[green]✓ Using Ollama at {url}{origin}[/green]")
@@ -611,8 +641,10 @@ def ensure_api_key(provider: str) -> str | None:
     Returns None for providers that do not require a key (e.g. ollama)
     and for providers not found in the canonical mapping.
     """
+    logger.debug("ensure_api_key provider=%s", provider)
     env_var = get_api_key_env(provider)
     if env_var is None:
+        logger.debug("ensure_api_key: provider %s has no key env var", provider)
         return None  # ollama / unknown — no key check possible
 
     # Key-optional providers (generic OpenAI-compatible / local servers) read the
@@ -624,6 +656,7 @@ def ensure_api_key(provider: str) -> str | None:
 
     existing = os.environ.get(env_var)
     if existing:
+        logger.debug("ensure_api_key: %s found in environment", env_var)
         return existing
 
     console.print(
@@ -646,12 +679,14 @@ def ensure_api_key(provider: str) -> str | None:
     Path(env_path).touch(exist_ok=True)
     set_key(env_path, env_var, key)
     os.environ[env_var] = key
+    logger.debug("ensure_api_key: saved %s to %s", env_var, env_path)
     console.print(f"[green]Saved {env_var} to {env_path}[/green]")
     return key
 
 
 def ask_output_language() -> str:
     """Ask for report output language."""
+    logger.debug("ask_output_language invoked")
     choice = questionary.select(
         "Select Output Language:",
         choices=[

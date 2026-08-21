@@ -1,3 +1,5 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
@@ -8,12 +10,15 @@ from tradingagents.agents.utils.agent_utils import (
     get_verified_market_snapshot,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_market_analyst(llm):
 
     def market_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = get_instrument_context_from_state(state)
+        logger.debug("Market Analyst node invoked: ticker=%s date=%s", state.get("company_of_interest"), state.get("trade_date"))
 
         tools = [
             get_stock_data,
@@ -83,12 +88,19 @@ Write a very detailed and nuanced report of the trends you observe. Provide spec
         # Private channel when the analysts run concurrently; legacy fallback
         # to the shared "messages" for direct calls / old checkpoints.
         channel = state.get("market_messages", state.get("messages", []))
-        result = chain.invoke(channel)
+        try:
+            result = chain.invoke(channel)
+            logger.debug("Market Analyst LLM call completed (%d tool_calls)", len(getattr(result, "tool_calls", []) or []))
+        except Exception as exc:
+            logger.exception("Market Analyst LLM call failed: %s", exc)
+            raise
 
         report = ""
 
         if len(result.tool_calls) == 0:
             report = result.content
+
+        logger.debug("Market Analyst finished: report=%d chars", len(report or ""))
 
         return {
             "market_messages": [result],

@@ -1,8 +1,11 @@
+import logging
 from typing import Annotated
 
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -33,4 +36,17 @@ def get_macro_indicators(
     Returns:
         str: A formatted markdown report of the macro series
     """
-    return route_to_vendor("get_macro_indicators", indicator, curr_date, look_back_days)
+    logger.debug(
+        "get_macro_indicators called: indicator=%s, curr_date=%s, look_back_days=%s",
+        indicator, curr_date, look_back_days,
+    )
+    try:
+        result = route_to_vendor("get_macro_indicators", indicator, curr_date, look_back_days)
+        logger.debug("get_macro_indicators returned %d chars for %s", len(result), indicator)
+        return result
+    except Exception:
+        logger.exception(
+            "get_macro_indicators failed: indicator=%s, curr_date=%s, look_back_days=%s",
+            indicator, curr_date, look_back_days,
+        )
+        raise

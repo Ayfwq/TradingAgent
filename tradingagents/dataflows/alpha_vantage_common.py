@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime
 from io import StringIO
@@ -7,6 +8,8 @@ import pandas as pd
 import requests
 
 from .errors import VendorNotConfiguredError, VendorRateLimitError
+
+logger = logging.getLogger(__name__)
 
 API_BASE_URL = "https://www.alphavantage.co/query"
 
@@ -29,6 +32,7 @@ def get_api_key() -> str:
     """Retrieve the API key for Alpha Vantage from environment variables."""
     api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
     if not api_key:
+        logger.warning("ALPHA_VANTAGE_API_KEY environment variable is not set")
         raise AlphaVantageNotConfiguredError(
             "ALPHA_VANTAGE_API_KEY environment variable is not set."
         )
@@ -65,6 +69,7 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
     Raises:
         AlphaVantageRateLimitError: When API rate limit is exceeded
     """
+    logger.debug("alpha vantage API request: function=%s params=%s", function_name, params)
     # Create a copy of params to avoid modifying the original
     api_params = params.copy()
     api_params.update({
@@ -93,6 +98,7 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
     try:
         response_json = json.loads(response_text)
     except json.JSONDecodeError:
+        logger.debug("alpha vantage API response for function=%s is non-JSON (%d bytes)", function_name, len(response_text))
         return response_text
 
     # Alpha Vantage reports problems via "Information" / "Note". Classify so a
@@ -103,12 +109,15 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
     if notice:
         low = notice.lower()
         if any(m in low for m in ("rate limit", "requests per day", "call frequency", "premium")):
+            logger.warning("alpha vantage rate limit hit for function=%s: %s", function_name, notice)
             raise AlphaVantageRateLimitError(f"Alpha Vantage rate limit exceeded: {notice}")
         if "api key" in low or "apikey" in low:
+            logger.warning("alpha vantage API key invalid or missing for function=%s: %s", function_name, notice)
             # Reuse the existing "not configured" error so a bad key surfaces as
             # a real, actionable failure rather than a mislabeled rate limit (#991).
             raise AlphaVantageNotConfiguredError(f"Alpha Vantage API key invalid or missing: {notice}")
 
+    logger.debug("alpha vantage API response for function=%s is JSON (%d bytes)", function_name, len(response_text))
     return response_text
 
 
@@ -125,7 +134,9 @@ def _filter_csv_by_date_range(csv_data: str, start_date: str, end_date: str) -> 
     Returns:
         Filtered CSV string
     """
+    logger.debug("_filter_csv_by_date_range called for %s..%s", start_date, end_date)
     if not csv_data or csv_data.strip() == "":
+        logger.debug("alpha vantage CSV data is empty for %s..%s", start_date, end_date)
         return csv_data
 
     try:
@@ -141,11 +152,13 @@ def _filter_csv_by_date_range(csv_data: str, start_date: str, end_date: str) -> 
         end_dt = pd.to_datetime(end_date)
 
         filtered_df = df[(df[date_col] >= start_dt) & (df[date_col] <= end_dt)]
+        logger.debug("alpha vantage CSV filtered from %d to %d rows (%s..%s)", len(df), len(filtered_df), start_date, end_date)
 
         # Convert back to CSV string
         return filtered_df.to_csv(index=False)
 
     except Exception as e:
         # If filtering fails, return original data with a warning
+        logger.warning("failed to filter alpha vantage CSV by date range %s..%s: %s", start_date, end_date, e)
         print(f"Warning: Failed to filter CSV data by date range: {e}")
         return csv_data

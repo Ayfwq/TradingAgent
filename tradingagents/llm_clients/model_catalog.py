@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 ModelOption = tuple[str, str]
 ProviderModeOptions = dict[str, dict[str, list[ModelOption]]]
 
@@ -193,12 +197,14 @@ MODEL_OPTIONS: ProviderModeOptions = {
 
 def get_model_options(provider: str, mode: str) -> list[ModelOption]:
     """Return shared model options for a provider and selection mode."""
-    return MODEL_OPTIONS[provider.lower()][mode]
+    options = MODEL_OPTIONS[provider.lower()][mode]
+    logger.debug("Resolved %d model options for provider='%s' mode='%s'", len(options), provider, mode)
+    return options
 
 
 def get_known_models() -> dict[str, list[str]]:
     """Build known model names from the shared CLI catalog."""
-    return {
+    known = {
         provider: sorted(
             {
                 value
@@ -208,3 +214,5 @@ def get_known_models() -> dict[str, list[str]]:
         )
         for provider, mode_options in MODEL_OPTIONS.items()
     }
+    logger.debug("Built known-model catalog for %d providers", len(known))
+    return known

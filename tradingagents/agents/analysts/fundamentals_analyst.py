@@ -1,3 +1,5 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
@@ -9,11 +11,14 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_fundamentals_analyst(llm):
     def fundamentals_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = get_instrument_context_from_state(state)
+        logger.debug("Fundamentals Analyst node invoked: ticker=%s date=%s", state.get("company_of_interest"), state.get("trade_date"))
 
         tools = [
             get_fundamentals,
@@ -57,12 +62,19 @@ def create_fundamentals_analyst(llm):
         # Private channel when the analysts run concurrently; legacy fallback
         # to the shared "messages" for direct calls / old checkpoints.
         channel = state.get("fundamentals_messages", state.get("messages", []))
-        result = chain.invoke(channel)
+        try:
+            result = chain.invoke(channel)
+            logger.debug("Fundamentals Analyst LLM call completed (%d tool_calls)", len(getattr(result, "tool_calls", []) or []))
+        except Exception as exc:
+            logger.exception("Fundamentals Analyst LLM call failed: %s", exc)
+            raise
 
         report = ""
 
         if len(result.tool_calls) == 0:
             report = result.content
+
+        logger.debug("Fundamentals Analyst finished: report=%d chars", len(report or ""))
 
         return {
             "fundamentals_messages": [result],

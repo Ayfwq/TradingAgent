@@ -1,7 +1,11 @@
+import logging
+
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_neutral_debator(llm):
@@ -21,6 +25,8 @@ def create_neutral_debator(llm):
 
         trader_decision = state["trader_investment_plan"]
 
+        logger.debug("Neutral Analyst invoked: ticker=%s debate_round=%d", state.get("company_of_interest"), state.get("risk_debate_state", {}).get("count", 0))
+
         prompt = f"""As the Neutral Risk Analyst, your role is to provide a balanced perspective, weighing both the potential benefits and risks of the trader's decision or plan. You prioritize a well-rounded approach, evaluating the upsides and downsides while factoring in broader market trends, potential economic shifts, and diversification strategies.Here is the trader's decision:
 
 {trader_decision}
@@ -36,7 +42,12 @@ Here is the current conversation history: {history} Here is the last response fr
 
 Engage actively by analyzing both sides critically, addressing weaknesses in the aggressive and conservative arguments to advocate for a more balanced approach. Challenge each of their points to illustrate why a moderate risk strategy might offer the best of both worlds, providing growth potential while safeguarding against extreme volatility. Focus on debating rather than simply presenting data, aiming to show that a balanced view can lead to the most reliable outcomes. Output conversationally as if you are speaking without any special formatting.""" + get_language_instruction()
 
-        response = llm.invoke(prompt)
+        try:
+            response = llm.invoke(prompt)
+            logger.debug("Neutral Analyst LLM call completed (%d chars)", len(response.content or ""))
+        except Exception as exc:
+            logger.exception("Neutral Analyst LLM call failed: %s", exc)
+            raise
 
         argument = f"Neutral Analyst: {response.content}"
 
@@ -53,6 +64,8 @@ Engage actively by analyzing both sides critically, addressing weaknesses in the
             "current_neutral_response": argument,
             "count": risk_debate_state["count"] + 1,
         }
+
+        logger.debug("Neutral Analyst finished: argument=%d chars", len(argument or ""))
 
         return {"risk_debate_state": new_risk_debate_state}
 

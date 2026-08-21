@@ -1,4 +1,8 @@
+import logging
+
 from .alpha_vantage_common import AlphaVantageNotConfiguredError, _make_api_request
+
+logger = logging.getLogger(__name__)
 
 
 def get_indicator(
@@ -25,6 +29,10 @@ def get_indicator(
     Returns:
         String containing indicator values and description
     """
+    logger.debug(
+        "get_indicator called for %s indicator=%s curr_date=%s look_back_days=%d interval=%s time_period=%d series_type=%s",
+        symbol, indicator, curr_date, look_back_days, interval, time_period, series_type,
+    )
     from datetime import datetime
 
     from dateutil.relativedelta import relativedelta
@@ -60,6 +68,7 @@ def get_indicator(
     }
 
     if indicator not in supported_indicators:
+        logger.warning("unsupported alpha vantage indicator %s requested for %s", indicator, symbol)
         raise ValueError(
             f"Indicator {indicator} is not supported. Please choose from: {list(supported_indicators.keys())}"
         )
@@ -133,13 +142,16 @@ def get_indicator(
         elif indicator == "vwma":
             # Alpha Vantage doesn't have direct VWMA, so we'll return an informative message
             # In a real implementation, this would need to be calculated from OHLCV data
+            logger.debug("alpha vantage has no native VWMA endpoint for %s; returning informative message", symbol)
             return f"## VWMA (Volume Weighted Moving Average) for {symbol}:\n\nVWMA calculation requires OHLCV data and is not directly available from Alpha Vantage API.\nThis indicator would need to be calculated from the raw stock data using volume-weighted price averaging.\n\n{indicator_descriptions.get('vwma', 'No description available.')}"
         else:
+            logger.warning("alpha vantage indicator %s for %s not implemented", indicator, symbol)
             return f"Error: Indicator {indicator} not implemented yet."
 
         # Parse CSV data and extract values for the date range
         lines = data.strip().split('\n')
         if len(lines) < 2:
+            logger.warning("alpha vantage returned no indicator data rows for %s (%s)", indicator, symbol)
             return f"Error: No data returned for {indicator}"
 
         # Parse header and data
@@ -147,6 +159,7 @@ def get_indicator(
         try:
             date_col_idx = header.index('time')
         except ValueError:
+            logger.warning("'time' column not found in alpha vantage %s response for %s: %s", indicator, symbol, header)
             return f"Error: 'time' column not found in data for {indicator}. Available columns: {header}"
 
         # Map internal indicator names to expected CSV column names from Alpha Vantage
@@ -166,6 +179,7 @@ def get_indicator(
             try:
                 value_col_idx = header.index(target_col_name)
             except ValueError:
+                logger.warning("column '%s' not found in alpha vantage %s response for %s: %s", target_col_name, indicator, symbol, header)
                 return f"Error: Column '{target_col_name}' not found for indicator '{indicator}'. Available columns: {header}"
 
         result_data = []
@@ -194,8 +208,10 @@ def get_indicator(
             ind_string += f"{date_dt.strftime('%Y-%m-%d')}: {value}\n"
 
         if not ind_string:
+            logger.debug("no %s values in range for %s (%s..%s)", indicator, symbol, before.strftime("%Y-%m-%d"), curr_date)
             ind_string = "No data available for the specified date range.\n"
 
+        logger.debug("alpha vantage %s returned %d values for %s", indicator, len(result_data), symbol)
         result_str = (
             f"## {indicator.upper()} values from {before.strftime('%Y-%m-%d')} to {curr_date}:\n\n"
             + ind_string
@@ -211,5 +227,6 @@ def get_indicator(
         # successful-looking error string.
         raise
     except Exception as e:
+        logger.warning("failed to get alpha vantage indicator %s for %s: %s", indicator, symbol, e)
         print(f"Error getting Alpha Vantage indicator data for {indicator}: {e}")
         return f"Error retrieving {indicator} data: {str(e)}"

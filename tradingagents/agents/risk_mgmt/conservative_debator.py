@@ -1,7 +1,11 @@
+import logging
+
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_conservative_debator(llm):
@@ -21,6 +25,8 @@ def create_conservative_debator(llm):
 
         trader_decision = state["trader_investment_plan"]
 
+        logger.debug("Conservative Analyst invoked: ticker=%s debate_round=%d", state.get("company_of_interest"), state.get("risk_debate_state", {}).get("count", 0))
+
         prompt = f"""As the Conservative Risk Analyst, your primary objective is to protect assets, minimize volatility, and ensure steady, reliable growth. You prioritize stability, security, and risk mitigation, carefully assessing potential losses, economic downturns, and market volatility. When evaluating the trader's decision or plan, critically examine high-risk elements, pointing out where the decision may expose the firm to undue risk and where more cautious alternatives could secure long-term gains. Here is the trader's decision:
 
 {trader_decision}
@@ -36,7 +42,12 @@ Here is the current conversation history: {history} Here is the last response fr
 
 Engage by questioning their optimism and emphasizing the potential downsides they may have overlooked. Address each of their counterpoints to showcase why a conservative stance is ultimately the safest path for the firm's assets. Focus on debating and critiquing their arguments to demonstrate the strength of a low-risk strategy over their approaches. Output conversationally as if you are speaking without any special formatting.""" + get_language_instruction()
 
-        response = llm.invoke(prompt)
+        try:
+            response = llm.invoke(prompt)
+            logger.debug("Conservative Analyst LLM call completed (%d chars)", len(response.content or ""))
+        except Exception as exc:
+            logger.exception("Conservative Analyst LLM call failed: %s", exc)
+            raise
 
         argument = f"Conservative Analyst: {response.content}"
 
@@ -55,6 +66,8 @@ Engage by questioning their optimism and emphasizing the potential downsides the
             ),
             "count": risk_debate_state["count"] + 1,
         }
+
+        logger.debug("Conservative Analyst finished: argument=%d chars", len(argument or ""))
 
         return {"risk_debate_state": new_risk_debate_state}
 

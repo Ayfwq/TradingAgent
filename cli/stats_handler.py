@@ -1,9 +1,12 @@
+import logging
 import threading
 from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import LLMResult
+
+logger = logging.getLogger(__name__)
 
 
 class StatsCallbackHandler(BaseCallbackHandler):
@@ -16,6 +19,7 @@ class StatsCallbackHandler(BaseCallbackHandler):
         self.tool_calls = 0
         self.tokens_in = 0
         self.tokens_out = 0
+        logger.debug("StatsCallbackHandler initialized")
 
     def on_llm_start(
         self,
@@ -26,6 +30,7 @@ class StatsCallbackHandler(BaseCallbackHandler):
         """Increment LLM call counter when an LLM starts."""
         with self._lock:
             self.llm_calls += 1
+            logger.debug("LLM start: total llm_calls=%d", self.llm_calls)
 
     def on_chat_model_start(
         self,
@@ -36,6 +41,7 @@ class StatsCallbackHandler(BaseCallbackHandler):
         """Increment LLM call counter when a chat model starts."""
         with self._lock:
             self.llm_calls += 1
+            logger.debug("Chat model start: total llm_calls=%d", self.llm_calls)
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> None:
         """Extract token usage from LLM response."""
@@ -54,6 +60,12 @@ class StatsCallbackHandler(BaseCallbackHandler):
             with self._lock:
                 self.tokens_in += usage_metadata.get("input_tokens", 0)
                 self.tokens_out += usage_metadata.get("output_tokens", 0)
+                logger.debug(
+                    "LLM end: tokens_in=%d tokens_out=%d totals=%d/%d",
+                    usage_metadata.get("input_tokens", 0),
+                    usage_metadata.get("output_tokens", 0),
+                    self.tokens_in, self.tokens_out,
+                )
 
     def on_tool_start(
         self,
@@ -64,13 +76,16 @@ class StatsCallbackHandler(BaseCallbackHandler):
         """Increment tool call counter when a tool starts."""
         with self._lock:
             self.tool_calls += 1
+            logger.debug("Tool start: total tool_calls=%d", self.tool_calls)
 
     def get_stats(self) -> dict[str, Any]:
         """Return current statistics."""
         with self._lock:
-            return {
+            stats = {
                 "llm_calls": self.llm_calls,
                 "tool_calls": self.tool_calls,
                 "tokens_in": self.tokens_in,
                 "tokens_out": self.tokens_out,
             }
+            logger.debug("Stats snapshot: %s", stats)
+            return stats

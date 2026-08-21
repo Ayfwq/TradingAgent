@@ -1,9 +1,12 @@
 """Append-only markdown decision log for TradingAgents."""
 
+import logging
 import re
 from pathlib import Path
 
 from tradingagents.agents.utils.rating import parse_rating
+
+logger = logging.getLogger(__name__)
 
 
 class TradingMemoryLog:
@@ -24,6 +27,10 @@ class TradingMemoryLog:
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
         # Optional cap on resolved entries. None disables rotation.
         self._max_entries = cfg.get("memory_log_max_entries")
+        logger.debug(
+            "TradingMemoryLog initialized: log_path=%s, max_entries=%s",
+            self._log_path, self._max_entries,
+        )
 
     # --- Write path (Phase A) ---
 
@@ -34,6 +41,10 @@ class TradingMemoryLog:
         final_trade_decision: str,
     ) -> None:
         """Append pending entry at end of propagate(). No LLM call."""
+        logger.debug(
+            "store_decision called: ticker=%s, trade_date=%s",
+            ticker, trade_date,
+        )
         if not self._log_path:
             return
         # Idempotency guard: fast raw-text scan instead of full parse
@@ -41,18 +52,28 @@ class TradingMemoryLog:
             raw = self._log_path.read_text(encoding="utf-8")
             for line in raw.splitlines():
                 if line.startswith(f"[{trade_date} | {ticker} |") and line.endswith("| pending]"):
+                    logger.debug(
+                        "store_decision skipped duplicate pending entry for %s / %s",
+                        ticker, trade_date,
+                    )
                     return
         rating = parse_rating(final_trade_decision)
         tag = f"[{trade_date} | {ticker} | {rating} | pending]"
         entry = f"{tag}\n\nDECISION:\n{final_trade_decision}{self._SEPARATOR}"
         with open(self._log_path, "a", encoding="utf-8") as f:
             f.write(entry)
+        logger.info(
+            "store_decision wrote pending entry: ticker=%s, trade_date=%s, rating=%s",
+            ticker, trade_date, rating,
+        )
 
     # --- Read path (Phase A) ---
 
     def load_entries(self) -> list[dict]:
         """Parse all entries from log. Returns list of dicts."""
+        logger.debug("load_entries called: log_path=%s", self._log_path)
         if not self._log_path or not self._log_path.exists():
+            logger.debug("load_entries: no log file present, returning empty list")
             return []
         text = self._log_path.read_text(encoding="utf-8")
         raw_entries = [e.strip() for e in text.split(self._SEPARATOR) if e.strip()]
@@ -61,16 +82,24 @@ class TradingMemoryLog:
             parsed = self._parse_entry(raw)
             if parsed:
                 entries.append(parsed)
+        logger.debug("load_entries parsed %d entries", len(entries))
         return entries
 
     def get_pending_entries(self) -> list[dict]:
         """Return entries with outcome:pending (for Phase B)."""
-        return [e for e in self.load_entries() if e.get("pending")]
+        pending = [e for e in self.load_entries() if e.get("pending")]
+        logger.debug("get_pending_entries found %d pending entries", len(pending))
+        return pending
 
     def get_past_context(self, ticker: str, n_same: int = 5, n_cross: int = 3) -> str:
         """Return formatted past context string for agent prompt injection."""
+        logger.debug(
+            "get_past_context called: ticker=%s, n_same=%d, n_cross=%d",
+            ticker, n_same, n_cross,
+        )
         entries = [e for e in self.load_entries() if not e.get("pending")]
         if not entries:
+            logger.debug("get_past_context: no resolved entries for %s", ticker)
             return ""
 
         same, cross = [], []
@@ -83,6 +112,7 @@ class TradingMemoryLog:
                 cross.append(e)
 
         if not same and not cross:
+            logger.debug("get_past_context: no matching entries for %s", ticker)
             return ""
 
         parts = []
@@ -92,7 +122,12 @@ class TradingMemoryLog:
         if cross:
             parts.append("Recent cross-ticker lessons:")
             parts.extend(self._format_reflection_only(e) for e in cross)
-        return "\n\n".join(parts)
+        result = "\n\n".join(parts)
+        logger.debug(
+            "get_past_context built %d chars for %s (%d same, %d cross)",
+            len(result), ticker, len(same), len(cross),
+        )
+        return result
 
     # --- Update path (Phase B) ---
 
@@ -111,7 +146,12 @@ class TradingMemoryLog:
         its tag with return figures, and appends a REFLECTION section.  Uses
         a temp-file + os.replace() so a crash mid-write never corrupts the log.
         """
+        logger.debug(
+            "update_with_outcome called: ticker=%s, trade_date=%s, raw_return=%s, alpha_return=%s, holding_days=%d",
+            ticker, trade_date, raw_return, alpha_return, holding_days,
+        )
         if not self._log_path or not self._log_path.exists():
+            logger.debug("update_with_outcome: no log file present, skipping")
             return
 
         text = self._log_path.read_text(encoding="utf-8")
@@ -153,6 +193,10 @@ class TradingMemoryLog:
                 new_blocks.append(block)
 
         if not updated:
+            logger.debug(
+                "update_with_outcome: no pending entry matched for %s / %s",
+                trade_date, ticker,
+            )
             return
 
         new_blocks = self._apply_rotation(new_blocks)
@@ -160,6 +204,10 @@ class TradingMemoryLog:
         tmp_path = self._log_path.with_suffix(".tmp")
         tmp_path.write_text(new_text, encoding="utf-8")
         tmp_path.replace(self._log_path)
+        logger.info(
+            "update_with_outcome resolved entry: ticker=%s, trade_date=%s, raw=%s, alpha=%s",
+            ticker, trade_date, raw_pct, alpha_pct,
+        )
 
     def batch_update_with_outcomes(self, updates: list[dict]) -> None:
         """Apply multiple outcome updates in a single read + atomic write.
@@ -167,7 +215,11 @@ class TradingMemoryLog:
         Each element of updates must have keys: ticker, trade_date,
         raw_return, alpha_return, holding_days, reflection.
         """
+        logger.debug(
+            "batch_update_with_outcomes called with %d updates", len(updates)
+        )
         if not self._log_path or not self._log_path.exists() or not updates:
+            logger.debug("batch_update_with_outcomes: no log file or updates, skipping")
             return
 
         text = self._log_path.read_text(encoding="utf-8")
@@ -214,6 +266,10 @@ class TradingMemoryLog:
         tmp_path = self._log_path.with_suffix(".tmp")
         tmp_path.write_text(new_text, encoding="utf-8")
         tmp_path.replace(self._log_path)
+        logger.info(
+            "batch_update_with_outcomes applied %d updates",
+            len(updates) - len(update_map),
+        )
 
     # --- Helpers ---
 
@@ -246,6 +302,10 @@ class TradingMemoryLog:
             return blocks
 
         to_drop = resolved_count - self._max_entries
+        logger.debug(
+            "_apply_rotation dropping %d resolved blocks (max_entries=%s)",
+            to_drop, self._max_entries,
+        )
         kept: list[str] = []
         for block, is_resolved in decisions:
             if is_resolved and to_drop > 0:
@@ -260,9 +320,11 @@ class TradingMemoryLog:
             return None
         tag_line = lines[0].strip()
         if not (tag_line.startswith("[") and tag_line.endswith("]")):
+            logger.debug("_parse_entry skipped block without tag brackets")
             return None
         fields = [f.strip() for f in tag_line[1:-1].split("|")]
         if len(fields) < 4:
+            logger.debug("_parse_entry skipped block with %d fields", len(fields))
             return None
         entry = {
             "date": fields[0],

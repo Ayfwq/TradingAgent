@@ -1,8 +1,11 @@
+import logging
 from typing import Annotated
 
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -28,4 +31,11 @@ def get_prediction_markets(
     Returns:
         str: A formatted markdown report of matching prediction markets
     """
-    return route_to_vendor("get_prediction_markets", topic, limit)
+    logger.debug("get_prediction_markets called: topic=%s, limit=%s", topic, limit)
+    try:
+        result = route_to_vendor("get_prediction_markets", topic, limit)
+        logger.debug("get_prediction_markets returned %d chars for topic=%s", len(result), topic)
+        return result
+    except Exception:
+        logger.exception("get_prediction_markets failed: topic=%s, limit=%s", topic, limit)
+        raise

@@ -1,3 +1,5 @@
+import logging
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from tradingagents.agents.utils.agent_utils import (
@@ -9,6 +11,8 @@ from tradingagents.agents.utils.agent_utils import (
     get_prediction_markets,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_news_analyst(llm):
     def news_analyst_node(state):
@@ -16,6 +20,7 @@ def create_news_analyst(llm):
         asset_type = state.get("asset_type", "stock")
         asset_label = "company" if asset_type == "stock" else "asset"
         instrument_context = get_instrument_context_from_state(state)
+        logger.debug("News Analyst node invoked: ticker=%s date=%s", state.get("company_of_interest"), state.get("trade_date"))
 
         tools = [
             get_news,
@@ -57,12 +62,19 @@ def create_news_analyst(llm):
         # Private channel when the analysts run concurrently; legacy fallback
         # to the shared "messages" for direct calls / old checkpoints.
         channel = state.get("news_messages", state.get("messages", []))
-        result = chain.invoke(channel)
+        try:
+            result = chain.invoke(channel)
+            logger.debug("News Analyst LLM call completed (%d tool_calls)", len(getattr(result, "tool_calls", []) or []))
+        except Exception as exc:
+            logger.exception("News Analyst LLM call failed: %s", exc)
+            raise
 
         report = ""
 
         if len(result.tool_calls) == 0:
             report = result.content
+
+        logger.debug("News Analyst finished: report=%d chars", len(report or ""))
 
         return {
             "news_messages": [result],

@@ -1,5 +1,6 @@
 # TradingAgents/graph/setup.py
 
+import logging
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -24,6 +25,8 @@ from tradingagents.agents.utils.agent_states import AgentState
 
 from .analyst_execution import build_analyst_execution_plan
 from .conditional_logic import ConditionalLogic
+
+logger = logging.getLogger(__name__)
 
 # Every target a shared conditional router can return. Each edge driven by the
 # router maps all of them, so a fall-through return (e.g. under prompt/i18n/
@@ -68,7 +71,12 @@ def _make_analyst_barrier(ready_checks: list[tuple[str, str]]):
         if missing:
             # No destination this step: absorbs the early clear signal.
             # (Returning None would be treated as a node name -> KeyError.)
+            logger.debug(
+                "Analyst barrier waiting on %s; no-op this step",
+                ", ".join(f"{r}/{d}" for r, d in missing),
+            )
             return ()
+        logger.debug("Analyst barrier: all analysts finished -> Bull Researcher")
         return ("Bull Researcher",)
 
     return _analyst_barrier_node, _analyst_barrier_route
@@ -103,6 +111,10 @@ class GraphSetup:
                 - "fundamentals": Fundamentals analyst
         """
         plan = build_analyst_execution_plan(selected_analysts)
+        logger.debug(
+            "Building graph with %d analyst(s): %s",
+            len(plan.specs), ", ".join(spec.key for spec in plan.specs),
+        )
 
         analyst_factories = {
             "market": lambda: create_market_analyst(self.quick_thinking_llm),
@@ -199,4 +211,8 @@ class GraphSetup:
 
         workflow.add_edge("Portfolio Manager", END)
 
+        logger.debug(
+            "Workflow assembled with nodes: %s",
+            ", ".join(sorted(workflow.nodes.keys())),
+        )
         return workflow

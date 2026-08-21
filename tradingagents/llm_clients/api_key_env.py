@@ -11,6 +11,10 @@ prompts for it automatically instead of failing on first API call.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "openai":     "OPENAI_API_KEY",
     "anthropic":  "ANTHROPIC_API_KEY",
@@ -50,4 +54,6 @@ def get_api_key_env(provider: str) -> str | None:
     Unknown providers also return None — callers should treat that as
     "no key check possible" rather than as "no key required".
     """
-    return PROVIDER_API_KEY_ENV.get(provider.lower())
+    result = PROVIDER_API_KEY_ENV.get(provider.lower())
+    logger.debug("Resolved API-key env var for provider '%s': %s", provider, result)
+    return result

@@ -1,8 +1,11 @@
+import logging
 import os
 from typing import Any
 
 from .base_client import BaseLLMClient, normalize_content
 from .validators import validate_model
+
+logger = logging.getLogger(__name__)
 
 # Bedrock has no global default region; us-west-2 hosts the broadest model set.
 _DEFAULT_REGION = "us-west-2"
@@ -23,6 +26,7 @@ def _bedrock_class():
     try:
         from langchain_aws import ChatBedrockConverse
     except ImportError as exc:
+        logger.exception("Failed to import langchain_aws for Bedrock support")
         raise ImportError(
             "AWS Bedrock support requires the optional 'langchain-aws' dependency. "
             'Install it with: pip install "tradingagents[bedrock]"'
@@ -51,6 +55,7 @@ class BedrockClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return a configured ChatBedrockConverse instance."""
+        logger.debug("Building Bedrock LLM: provider=bedrock model=%s base_url=%s", self.model, self.base_url)
         self.warn_if_unknown_model()
         chat_cls = _bedrock_class()
 
@@ -69,8 +74,12 @@ class BedrockClient(BaseLLMClient):
         for key in ("temperature", "max_tokens", "max_retries", "callbacks"):
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
-        return chat_cls(**llm_kwargs)
+        llm = chat_cls(**llm_kwargs)
+        logger.debug("Constructed %s for model=%s region=%s", chat_cls.__name__, self.model, region)
+        return llm
 
     def validate_model(self) -> bool:
         """Validate model for Bedrock (any model ID accepted)."""
-        return validate_model("bedrock", self.model)
+        result = validate_model("bedrock", self.model)
+        logger.debug("Model '%s' validation for provider 'bedrock': %s", self.model, result)
+        return result

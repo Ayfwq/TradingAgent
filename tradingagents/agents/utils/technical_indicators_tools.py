@@ -1,8 +1,11 @@
+import logging
 from typing import Annotated
 
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -25,11 +28,19 @@ def get_indicators(
     """
     # LLMs sometimes pass multiple indicators as a comma-separated string;
     # split and process each individually.
+    logger.debug(
+        "get_indicators called: symbol=%s, indicator=%s, curr_date=%s, look_back_days=%s",
+        symbol, indicator, curr_date, look_back_days,
+    )
     indicators = [i.strip().lower() for i in indicator.split(",") if i.strip()]
     results = []
     for ind in indicators:
         try:
-            results.append(route_to_vendor("get_indicators", symbol, ind, curr_date, look_back_days))
+            result = route_to_vendor("get_indicators", symbol, ind, curr_date, look_back_days)
+            logger.debug("get_indicators returned %d chars for %s / %s", len(result), symbol, ind)
+            results.append(result)
         except ValueError as e:
+            logger.exception("get_indicators failed for %s / %s", symbol, ind)
             results.append(str(e))
+    logger.debug("get_indicators aggregated %d result blocks for %s", len(results), symbol)
     return "\n\n".join(results)

@@ -7,11 +7,14 @@ crash): absence of a record is a real answer, network failure is
 DATA_UNAVAILABLE.
 """
 
+import logging
 from typing import Annotated
 
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -24,7 +27,20 @@ def get_lhb_context(
     institutional/seat activity (net buy, reason, post-listing 1/2/5-day returns).
     Only call for A-share tickers; absence from the list is normal for most stocks.
     """
-    return route_to_vendor("get_lhb_context", ticker, curr_date, look_back_days)
+    logger.debug(
+        "get_lhb_context called: ticker=%s, curr_date=%s, look_back_days=%s",
+        ticker, curr_date, look_back_days,
+    )
+    try:
+        result = route_to_vendor("get_lhb_context", ticker, curr_date, look_back_days)
+        logger.debug("get_lhb_context returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception(
+            "get_lhb_context failed: ticker=%s, curr_date=%s, look_back_days=%s",
+            ticker, curr_date, look_back_days,
+        )
+        raise
 
 
 @tool
@@ -36,7 +52,20 @@ def get_northbound_flow(
     analogue to institutional money flow. Recent daily net buys + latest-day
     summary. Market-wide, not per-ticker.
     """
-    return route_to_vendor("get_northbound_flow", curr_date, look_back_days)
+    logger.debug(
+        "get_northbound_flow called: curr_date=%s, look_back_days=%s",
+        curr_date, look_back_days,
+    )
+    try:
+        result = route_to_vendor("get_northbound_flow", curr_date, look_back_days)
+        logger.debug("get_northbound_flow returned %d chars", len(result))
+        return result
+    except Exception:
+        logger.exception(
+            "get_northbound_flow failed: curr_date=%s, look_back_days=%s",
+            curr_date, look_back_days,
+        )
+        raise
 
 
 @tool
@@ -49,7 +78,20 @@ def get_limit_up_context(
     (count, top sectors, highest streak) as a market-sentiment signal.
     Only call for A-share tickers.
     """
-    return route_to_vendor("get_limit_up_context", ticker, curr_date)
+    logger.debug(
+        "get_limit_up_context called: ticker=%s, curr_date=%s",
+        ticker, curr_date,
+    )
+    try:
+        result = route_to_vendor("get_limit_up_context", ticker, curr_date)
+        logger.debug("get_limit_up_context returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception(
+            "get_limit_up_context failed: ticker=%s, curr_date=%s",
+            ticker, curr_date,
+        )
+        raise
 
 
 @tool
@@ -61,7 +103,20 @@ def get_sector_context(
     their leader stocks. Market-wide context; also flags when the ticker is a
     sector leader today. Only call for A-share tickers.
     """
-    return route_to_vendor("get_sector_context", ticker, curr_date)
+    logger.debug(
+        "get_sector_context called: ticker=%s, curr_date=%s",
+        ticker, curr_date,
+    )
+    try:
+        result = route_to_vendor("get_sector_context", ticker, curr_date)
+        logger.debug("get_sector_context returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception(
+            "get_sector_context failed: ticker=%s, curr_date=%s",
+            ticker, curr_date,
+        )
+        raise
 
 
 @tool
@@ -74,4 +129,17 @@ def get_earnings_forecast(
     that arrives before the actual financial statements. Only call for A-share
     tickers; guidance is optional in A-shares, absence is normal.
     """
-    return route_to_vendor("get_earnings_forecast", ticker, curr_date)
+    logger.debug(
+        "get_earnings_forecast called: ticker=%s, curr_date=%s",
+        ticker, curr_date,
+    )
+    try:
+        result = route_to_vendor("get_earnings_forecast", ticker, curr_date)
+        logger.debug("get_earnings_forecast returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception(
+            "get_earnings_forecast failed: ticker=%s, curr_date=%s",
+            ticker, curr_date,
+        )
+        raise

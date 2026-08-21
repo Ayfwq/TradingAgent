@@ -1,11 +1,14 @@
 # TradingAgents/graph/propagation.py
 
+import logging
 from typing import Any
 
 from tradingagents.agents.utils.agent_states import (
     InvestDebateState,
     RiskDebateState,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Propagator:
@@ -14,6 +17,7 @@ class Propagator:
     def __init__(self, max_recur_limit=100):
         """Initialize with configuration parameters."""
         self.max_recur_limit = max_recur_limit
+        logger.debug("Propagator initialized with max_recur_limit=%d", max_recur_limit)
 
     def create_initial_state(
         self,
@@ -31,6 +35,12 @@ class Propagator:
         fall back to ticker-only context via
         ``get_instrument_context_from_state``.
         """
+        logger.debug(
+            "Creating initial state: company=%s date=%s asset_type=%s "
+            "past_context=%d chars instrument_context=%d chars",
+            company_name, trade_date, asset_type,
+            len(past_context or ""), len(instrument_context or ""),
+        )
         return {
             "messages": [("human", company_name)],
             # Per-analyst scratch channels (analysts run concurrently; each

@@ -1,6 +1,9 @@
+import logging
 from datetime import datetime
 
 from .alpha_vantage_common import _filter_csv_by_date_range, _make_api_request
+
+logger = logging.getLogger(__name__)
 
 
 def get_stock(
@@ -20,6 +23,7 @@ def get_stock(
     Returns:
         CSV string containing the daily adjusted time series data filtered to the date range.
     """
+    logger.debug("get_stock called for %s %s..%s", symbol, start_date, end_date)
     # Parse dates to determine the range
     start_dt = datetime.strptime(start_date, "%Y-%m-%d")
     today = datetime.now()
@@ -37,4 +41,6 @@ def get_stock(
 
     response = _make_api_request("TIME_SERIES_DAILY_ADJUSTED", params)
 
-    return _filter_csv_by_date_range(response, start_date, end_date)
+    filtered = _filter_csv_by_date_range(response, start_date, end_date)
+    logger.debug("alpha vantage daily series returned %d bytes for %s (%s..%s)", len(filtered), symbol, start_date, end_date)
+    return filtered

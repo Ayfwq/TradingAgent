@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from .api_key_env import get_api_key_env
 from .base_client import BaseLLMClient, normalize_content
 from .capabilities import get_capabilities
 from .validators import validate_model
+
+logger = logging.getLogger(__name__)
 
 
 class NormalizedChatOpenAI(ChatOpenAI):
@@ -275,6 +278,7 @@ class OpenAIClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return a configured ChatOpenAI instance, driven by the provider registry."""
+        logger.debug("Building OpenAI-compatible LLM: provider=%s model=%s base_url=%s", self.provider, self.model, self.base_url)
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
         spec = OPENAI_COMPATIBLE_PROVIDERS.get(self.provider)
@@ -289,6 +293,7 @@ class OpenAIClient(BaseLLMClient):
             env_base_url = os.environ.get(spec.base_url_env) if spec.base_url_env else None
             base_url = self.base_url or env_base_url or spec.base_url
             if spec.require_base_url and not base_url:
+                logger.error("Provider '%s' requires a base_url; none resolved", self.provider)
                 raise ValueError(
                     f"Provider '{self.provider}' requires a base_url. Set it via "
                     "backend_url / TRADINGAGENTS_LLM_BACKEND_URL to your endpoint, "
@@ -307,6 +312,7 @@ class OpenAIClient(BaseLLMClient):
             elif spec.key_optional:
                 llm_kwargs["api_key"] = spec.placeholder_key
             elif api_key_env:
+                logger.error("API key for provider '%s' is not set (env var '%s')", self.provider, api_key_env)
                 raise ValueError(
                     f"API key for provider '{self.provider}' is not set. "
                     f"Please set the {api_key_env} environment variable "
@@ -330,8 +336,12 @@ class OpenAIClient(BaseLLMClient):
             llm_kwargs[key] = self.kwargs[key]
 
         # The subclass (provider quirks) comes from the registry spec.
-        return chat_cls(**llm_kwargs)
+        llm = chat_cls(**llm_kwargs)
+        logger.debug("Constructed %s for provider=%s model=%s", chat_cls.__name__, self.provider, self.model)
+        return llm
 
     def validate_model(self) -> bool:
         """Validate model for the provider."""
-        return validate_model(self.provider, self.model)
+        result = validate_model(self.provider, self.model)
+        logger.debug("Model '%s' validation for provider '%s': %s", self.model, self.provider, result)
+        return result

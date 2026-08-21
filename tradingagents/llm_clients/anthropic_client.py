@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Any
 
@@ -5,6 +6,8 @@ from langchain_anthropic import ChatAnthropic
 
 from .base_client import BaseLLMClient, normalize_content
 from .validators import validate_model
+
+logger = logging.getLogger(__name__)
 
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "api_key", "max_tokens", "temperature",
@@ -58,6 +61,7 @@ class AnthropicClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return configured ChatAnthropic instance."""
+        logger.debug("Building Anthropic LLM: provider=anthropic model=%s base_url=%s", self.model, self.base_url)
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
@@ -71,8 +75,12 @@ class AnthropicClient(BaseLLMClient):
                 continue
             llm_kwargs[key] = self.kwargs[key]
 
-        return NormalizedChatAnthropic(**llm_kwargs)
+        llm = NormalizedChatAnthropic(**llm_kwargs)
+        logger.debug("Constructed NormalizedChatAnthropic for model=%s", self.model)
+        return llm
 
     def validate_model(self) -> bool:
         """Validate model for Anthropic."""
-        return validate_model("anthropic", self.model)
+        result = validate_model("anthropic", self.model)
+        logger.debug("Model '%s' validation for provider 'anthropic': %s", self.model, result)
+        return result

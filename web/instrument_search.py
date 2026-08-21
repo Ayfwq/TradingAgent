@@ -76,6 +76,10 @@ class InstrumentSearchService:
         limit: int = 8,
     ) -> dict:
         query = " ".join(query.strip().split())
+        logger.debug(
+            "Instrument search: query=%r market=%s use_ai=%s limit=%s",
+            query, market, use_ai, limit,
+        )
         if not query:
             raise ValueError("请输入公司名称、股票代码或公司描述")
         if len(query) > 300:
@@ -116,6 +120,10 @@ class InstrumentSearchService:
             status = "not_found"
             message = "未找到可验证的公开上市主体。该公司可能尚未上市，也可能使用了其他正式名称。"
 
+        logger.debug(
+            "Instrument search result: query=%r status=%s results=%d ai_used=%s",
+            query, status, len(results), ai_used,
+        )
         return {
             "query": query,
             "market": market,
@@ -132,17 +140,23 @@ class InstrumentSearchService:
         with self._cache_lock:
             entry = self._cache.get(key)
             if entry and entry.expires_at > now:
+                logger.debug("Directory cache hit for %r (%s)", query, market)
                 return entry.value
 
-        response = requests.get(
-            _SINA_SUGGEST_URL,
-            params={"type": "", "key": query},
-            headers=_SINA_HEADERS,
-            timeout=(3.05, 8),
-        )
-        response.raise_for_status()
+        try:
+            response = requests.get(
+                _SINA_SUGGEST_URL,
+                params={"type": "", "key": query},
+                headers=_SINA_HEADERS,
+                timeout=(3.05, 8),
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            logger.warning("Sina directory request failed for %r (%s)", query, market)
+            raise
         response.encoding = "gbk"
         parsed = self._parse_sina_response(response.text, market)
+        logger.debug("Sina directory returned %d row(s) for %r (%s)", len(parsed), query, market)
         with self._cache_lock:
             self._cache[key] = _CacheEntry(now + self.cache_ttl_seconds, parsed)
         return parsed
@@ -275,6 +289,10 @@ class InstrumentSearchService:
 
     @staticmethod
     def _expand_with_configured_model(query: str, market: Market) -> list[str]:
+        logger.debug(
+            "Expanding query with configured model: query=%r market=%s",
+            query, market,
+        )
         config = DEFAULT_CONFIG.copy()
         client = create_llm_client(
             provider=config["llm_provider"],
@@ -315,6 +333,7 @@ class InstrumentSearchService:
             value = " ".join(str(item).strip().split())[:40]
             if value and value not in cleaned:
                 cleaned.append(value)
+        logger.debug("Model expansion produced %d term(s) for %r", len(cleaned[:5]), query)
         return cleaned[:5]
 
 

@@ -1,4 +1,8 @@
+import logging
+
 from .alpha_vantage_common import _make_api_request, format_datetime_for_api
+
+logger = logging.getLogger(__name__)
 
 
 def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
@@ -14,14 +18,16 @@ def get_news(ticker, start_date, end_date) -> dict[str, str] | str:
     Returns:
         Dictionary containing news sentiment data or JSON string.
     """
-
+    logger.debug("get_news called for %s %s..%s", ticker, start_date, end_date)
     params = {
         "tickers": ticker,
         "time_from": format_datetime_for_api(start_date),
         "time_to": format_datetime_for_api(end_date),
     }
 
-    return _make_api_request("NEWS_SENTIMENT", params)
+    result = _make_api_request("NEWS_SENTIMENT", params)
+    logger.debug("alpha vantage news returned %d bytes for %s (%s..%s)", len(result), ticker, start_date, end_date)
+    return result
 
 def get_global_news(curr_date, look_back_days: int = 7, limit: int = 50) -> dict[str, str] | str:
     """Returns global market news & sentiment data without ticker-specific filtering.
@@ -36,6 +42,7 @@ def get_global_news(curr_date, look_back_days: int = 7, limit: int = 50) -> dict
     Returns:
         Dictionary containing global news sentiment data or JSON string.
     """
+    logger.debug("get_global_news called for %s look_back_days=%d limit=%d", curr_date, look_back_days, limit)
     from datetime import datetime, timedelta
 
     # Calculate start date
@@ -50,7 +57,9 @@ def get_global_news(curr_date, look_back_days: int = 7, limit: int = 50) -> dict
         "limit": str(limit),
     }
 
-    return _make_api_request("NEWS_SENTIMENT", params)
+    result = _make_api_request("NEWS_SENTIMENT", params)
+    logger.debug("alpha vantage global news returned %d bytes for %s..%s", len(result), start_date, curr_date)
+    return result
 
 
 def get_insider_transactions(symbol: str) -> dict[str, str] | str:
@@ -64,9 +73,11 @@ def get_insider_transactions(symbol: str) -> dict[str, str] | str:
     Returns:
         Dictionary containing insider transaction data or JSON string.
     """
-
+    logger.debug("get_insider_transactions called for %s", symbol)
     params = {
         "symbol": symbol,
     }
 
-    return _make_api_request("INSIDER_TRANSACTIONS", params)
+    result = _make_api_request("INSIDER_TRANSACTIONS", params)
+    logger.debug("alpha vantage insider transactions returned %d bytes for %s", len(result), symbol)
+    return result

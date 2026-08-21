@@ -1,9 +1,12 @@
+import logging
 import os
 from typing import Any
 
 from langchain_openai import AzureChatOpenAI
 
 from .base_client import BaseLLMClient, normalize_content
+
+logger = logging.getLogger(__name__)
 
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "api_key", "reasoning_effort", "temperature",
@@ -33,6 +36,7 @@ class AzureOpenAIClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return configured AzureChatOpenAI instance."""
+        logger.debug("Building Azure OpenAI LLM: provider=azure model=%s base_url=%s", self.model, self.base_url)
         self.warn_if_unknown_model()
 
         llm_kwargs = {
@@ -44,8 +48,11 @@ class AzureOpenAIClient(BaseLLMClient):
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
 
-        return NormalizedAzureChatOpenAI(**llm_kwargs)
+        llm = NormalizedAzureChatOpenAI(**llm_kwargs)
+        logger.debug("Constructed NormalizedAzureChatOpenAI for model=%s", self.model)
+        return llm
 
     def validate_model(self) -> bool:
         """Azure accepts any deployed model name."""
+        logger.debug("Azure accepts any deployed model name (model='%s')", self.model)
         return True

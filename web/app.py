@@ -161,6 +161,11 @@ def _present_result(final_state: dict, decision: str) -> dict:
 
 
 def _run_analysis(payload: AnalysisRequest) -> dict:
+    logger.debug(
+        "Running analysis: ticker=%s trade_date=%s asset_type=%s analysts=%s profile_id=%s",
+        payload.ticker, payload.trade_date.isoformat(), payload.asset_type,
+        payload.analysts, payload.model_profile_id,
+    )
     config = deepcopy(DEFAULT_CONFIG)
     config["checkpoint_enabled"] = True
     if payload.model_profile_id:
@@ -206,23 +211,34 @@ async def _execute(task_id: str, payload: AnalysisRequest) -> None:
 
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
+    logger.debug("Serving index page")
     return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/api/health")
 async def health() -> dict[str, str]:
+    logger.debug("Health check requested")
     return {"status": "ok"}
 
 
 @app.post("/api/instruments/search")
 async def search_instruments(payload: InstrumentSearchRequest) -> dict:
+    logger.debug(
+        "Instrument search request: query=%r market=%s use_ai=%s",
+        payload.query, payload.market, payload.use_ai,
+    )
     try:
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             instrument_search_service.search,
             payload.query,
             payload.market,
             use_ai=payload.use_ai,
         )
+        logger.debug(
+            "Instrument search completed for %r: %d result(s)",
+            payload.query, len(result.get("results", [])),
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except requests.RequestException as exc:
@@ -232,26 +248,34 @@ async def search_instruments(payload: InstrumentSearchRequest) -> dict:
 
 @app.get("/api/model-templates")
 async def get_model_templates() -> dict:
+    logger.debug("Model templates requested: %d template(s)", len(MODEL_TEMPLATES))
     return {"templates": MODEL_TEMPLATES}
 
 
 @app.get("/api/model-profiles")
 async def list_model_profiles() -> dict:
+    logger.debug("Model profiles listed")
     return {"profiles": model_profile_service.list()}
 
 
 @app.post("/api/model-profiles", status_code=201)
 async def create_model_profile(payload: ModelProfilePayload) -> dict:
+    logger.debug("Create model profile: name=%r base_url=%s", payload.name, payload.base_url)
     try:
-        return {"profile": model_profile_service.save(payload.model_dump())}
+        profile = model_profile_service.save(payload.model_dump())
+        logger.info("Created model profile %r (id=%s)", payload.name, profile.get("id"))
+        return {"profile": profile}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.put("/api/model-profiles/{profile_id}")
 async def update_model_profile(profile_id: str, payload: ModelProfilePayload) -> dict:
+    logger.debug("Update model profile %s: name=%r", profile_id, payload.name)
     try:
-        return {"profile": model_profile_service.save(payload.model_dump(), profile_id)}
+        profile = model_profile_service.save(payload.model_dump(), profile_id)
+        logger.info("Updated model profile %s (name=%r)", profile_id, payload.name)
+        return {"profile": profile}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -260,16 +284,24 @@ async def update_model_profile(profile_id: str, payload: ModelProfilePayload) ->
 
 @app.delete("/api/model-profiles/{profile_id}", status_code=204)
 async def delete_model_profile(profile_id: str) -> None:
+    logger.debug("Delete model profile %s", profile_id)
     try:
         model_profile_service.delete(profile_id)
+        logger.info("Deleted model profile %s", profile_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/model-profiles/{profile_id}/discover")
 async def discover_models(profile_id: str) -> dict:
+    logger.debug("Discover models for profile %s", profile_id)
     try:
-        return await asyncio.to_thread(model_profile_service.discover, profile_id)
+        result = await asyncio.to_thread(model_profile_service.discover, profile_id)
+        logger.info(
+            "Discovered %d model(s) for profile %s",
+            len(result.get("models", [])), profile_id,
+        )
+        return result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except requests.RequestException as exc:
@@ -279,8 +311,11 @@ async def discover_models(profile_id: str) -> dict:
 
 @app.post("/api/model-profiles/{profile_id}/test")
 async def test_model_profile(profile_id: str) -> dict:
+    logger.debug("Test model profile %s", profile_id)
     try:
-        return await asyncio.to_thread(model_profile_service.test, profile_id)
+        result = await asyncio.to_thread(model_profile_service.test, profile_id)
+        logger.info("Model test succeeded for profile %s", profile_id)
+        return result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except requests.RequestException as exc:
@@ -290,6 +325,11 @@ async def test_model_profile(profile_id: str) -> dict:
 
 @app.post("/api/analyses", status_code=202)
 async def create_analysis(payload: AnalysisRequest) -> dict[str, str]:
+    logger.info(
+        "Analysis queued: ticker=%s trade_date=%s asset_type=%s analysts=%s profile_id=%s",
+        payload.ticker, payload.trade_date.isoformat(), payload.asset_type,
+        payload.analysts, payload.model_profile_id,
+    )
     task_id = uuid.uuid4().hex
     now = _utc_now()
     record = AnalysisRecord(
@@ -309,6 +349,7 @@ async def create_analysis(payload: AnalysisRequest) -> dict[str, str]:
 
 @app.get("/api/analyses/{task_id}", response_model=AnalysisRecord)
 async def get_analysis(task_id: str) -> AnalysisRecord:
+    logger.debug("Analysis status requested for %s", task_id)
     with _records_lock:
         record = _records.get(task_id)
     if record is None:

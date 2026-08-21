@@ -12,9 +12,12 @@ This module exists for backwards compatibility with callers that expect a
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from tradingagents.agents.utils.rating import parse_rating
+
+logger = logging.getLogger(__name__)
 
 
 class SignalProcessor:
@@ -25,7 +28,10 @@ class SignalProcessor:
         # longer used: the PM's structured output guarantees the rating is
         # parseable from the rendered markdown without a second LLM call.
         self.quick_thinking_llm = quick_thinking_llm
+        logger.debug("SignalProcessor initialized")
 
     def process_signal(self, full_signal: str) -> str:
         """Return one of Buy / Overweight / Hold / Underweight / Sell."""
-        return parse_rating(full_signal)
+        rating = parse_rating(full_signal)
+        logger.debug("Parsed rating from PM decision: %s", rating)
+        return rating

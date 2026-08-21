@@ -11,7 +11,10 @@ Centralising it here avoids drift between those call sites.
 
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 # Canonical, ordered 5-tier scale (most bullish to most bearish).
 RATINGS_5_TIER: tuple[str, ...] = (
@@ -34,15 +37,21 @@ def parse_rating(text: str, default: str = "Hold") -> str:
 
     Returns a Title-cased rating string, or ``default`` if no rating word appears.
     """
+    logger.debug("parse_rating called: text_len=%d, default=%s", len(text), default)
     for line in text.splitlines():
         m = _RATING_LABEL_RE.search(line)
         if m and m.group(1).lower() in _RATING_SET:
-            return m.group(1).capitalize()
+            rating = m.group(1).capitalize()
+            logger.debug("parse_rating resolved label rating=%s", rating)
+            return rating
 
     for line in text.splitlines():
         for word in line.lower().split():
             clean = word.strip("*:.,")
             if clean in _RATING_SET:
-                return clean.capitalize()
+                rating = clean.capitalize()
+                logger.debug("parse_rating resolved keyword rating=%s", rating)
+                return rating
 
+    logger.debug("parse_rating fell back to default=%s", default)
     return default

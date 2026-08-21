@@ -14,9 +14,12 @@ as declarative per-model fields).
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 StructuredMethod = Literal[
     "function_calling",  # uses tools; respects supports_tool_choice
@@ -118,9 +121,13 @@ _BY_PATTERN: list[tuple[re.Pattern[str], ModelCapabilities]] = [
 
 def get_capabilities(model_name: str) -> ModelCapabilities:
     """Resolve capabilities by exact ID, then pattern, then default."""
+    logger.debug("Resolving capabilities for model '%s'", model_name)
     if model_name in _BY_ID:
+        logger.debug("Model '%s' matched capability table by exact ID", model_name)
         return _BY_ID[model_name]
     for pattern, caps in _BY_PATTERN:
         if pattern.match(model_name):
+            logger.debug("Model '%s' matched capability pattern '%s'", model_name, pattern.pattern)
             return caps
+    logger.debug("Model '%s' not in capability table; using defaults", model_name)
     return _DEFAULT

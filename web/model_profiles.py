@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import uuid
@@ -13,6 +14,8 @@ from urllib.parse import urlparse
 
 import requests
 from cryptography.fernet import Fernet, InvalidToken
+
+logger = logging.getLogger(__name__)
 
 MODEL_TEMPLATES = [
     {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1"},
@@ -91,7 +94,9 @@ class ModelProfileService:
 
     def list(self) -> list[dict[str, Any]]:
         with self._lock:
-            return [self._public(profile) for profile in self._read()]
+            profiles = [self._public(profile) for profile in self._read()]
+        logger.debug("Listed %d model profile(s)", len(profiles))
+        return profiles
 
     def _find(self, profile_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         profiles = self._read()
@@ -110,6 +115,10 @@ class ModelProfileService:
             raise ValueError("模型密钥无法解密，请重新保存该配置") from exc
 
     def save(self, payload: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
+        logger.debug(
+            "Save model profile: id=%s name=%r base_url=%s quick_model=%s",
+            profile_id, payload.get("name"), payload.get("base_url"), payload.get("quick_model"),
+        )
         name = str(payload.get("name", "")).strip()
         base_url = _normalise_base_url(str(payload.get("base_url", "")))
         quick_model = str(payload.get("quick_model", "")).strip()
@@ -143,12 +152,18 @@ class ModelProfileService:
             else:
                 profiles.append(profile)
             self._write(profiles)
+            logger.info(
+                "Saved model profile %s (name=%r)",
+                profile["id"], profile["name"],
+            )
             return self._public(profile)
 
     def delete(self, profile_id: str) -> None:
+        logger.debug("Delete model profile %s", profile_id)
         with self._lock:
             profiles, _ = self._find(profile_id)
             self._write([item for item in profiles if item.get("id") != profile_id])
+        logger.info("Deleted model profile %s", profile_id)
 
     @staticmethod
     def _headers(api_key: str | None) -> dict[str, str]:
@@ -158,6 +173,7 @@ class ModelProfileService:
         return headers
 
     def discover(self, profile_id: str) -> dict[str, Any]:
+        logger.debug("Discover models for profile %s", profile_id)
         with self._lock:
             profiles, profile = self._find(profile_id)
             api_key = self._api_key(profile)
@@ -171,9 +187,11 @@ class ModelProfileService:
             profile["updated_at"] = _now()
             profiles[profiles.index(profile)] = profile
             self._write(profiles)
+            logger.info("Discovered %d model(s) for profile %s", len(models), profile_id)
             return {"profile": self._public(profile), "models": models}
 
     def test(self, profile_id: str) -> dict[str, Any]:
+        logger.debug("Test model profile %s", profile_id)
         with self._lock:
             _, profile = self._find(profile_id)
             api_key = self._api_key(profile)
@@ -189,9 +207,11 @@ class ModelProfileService:
         content = ""
         if choices and isinstance(choices[0], dict):
             content = str((choices[0].get("message") or {}).get("content") or "")
+        logger.info("Model test succeeded for profile %s (model=%s)", profile_id, profile["quick_model"])
         return {"ok": True, "message": "模型连接正常", "model": profile["quick_model"], "reply": content[:160]}
 
     def graph_overrides(self, profile_id: str) -> dict[str, str]:
+        logger.debug("Build graph overrides for profile %s", profile_id)
         with self._lock:
             _, profile = self._find(profile_id)
             api_key = self._api_key(profile)

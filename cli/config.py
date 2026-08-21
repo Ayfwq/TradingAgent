@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 CLI_CONFIG = {
     # Announcements
     "announcements_url": "https://api.tauric.ai/v1/announcements",

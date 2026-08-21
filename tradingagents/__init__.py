@@ -35,3 +35,11 @@ warnings.filterwarnings(
     message=r"The default value of `allowed_objects`.*",
     category=PendingDeprecationWarning,
 )
+
+# Wire up the unified console + rotating-file logging once per process.
+# Every entry point (CLI, main.py, web server, scripts) imports this
+# package, so operations always gets a consistent, queryable log stream.
+with contextlib.suppress(Exception):
+    from .logging_utils import setup_logging as _setup_logging
+
+    _setup_logging()

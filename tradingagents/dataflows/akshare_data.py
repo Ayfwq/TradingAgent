@@ -116,6 +116,7 @@ def _download_daily(ticker: str, start_date: str, end_date: str) -> pd.DataFrame
 
     market, symbol = _to_akshare_symbol(ticker)
     if market is None:
+        logger.warning("unsupported market for akshare vendor: %s", ticker)
         raise NoMarketDataError(ticker, ticker, "unsupported market for akshare vendor")
     try:
         if market == "us":
@@ -138,9 +139,11 @@ def _download_daily(ticker: str, start_date: str, end_date: str) -> pd.DataFrame
         # Contract: the vendor surfaces ONE typed signal (NoMarketDataError)
         # so the router can emit a clear "unavailable" instead of a raw
         # generic exception leaking into the graph.
+        logger.warning("akshare download failed for %s (%s): %s", ticker, symbol, exc)
         raise NoMarketDataError(ticker, symbol, f"akshare download failed: {exc}") from exc
 
     if df is None or df.empty:
+        logger.warning("akshare returned no rows for %s (%s)", ticker, symbol)
         raise NoMarketDataError(ticker, symbol, "no rows returned by akshare")
 
     df = df.copy()
@@ -153,7 +156,9 @@ def _download_daily(ticker: str, start_date: str, end_date: str) -> pd.DataFrame
         df = df[(df["date"] >= start_dt) & (df["date"] <= end_dt)]
 
     if df.empty:
+        logger.warning("akshare returned no rows for %s between %s and %s", ticker, start_date, end_date)
         raise NoMarketDataError(ticker, symbol, f"no rows between {start_date} and {end_date}")
+    logger.debug("akshare returned %d rows for %s (%s)", len(df), ticker, symbol)
     return df
 
 
@@ -171,6 +176,7 @@ def _ak_retry(func, max_retries=2, base_delay=1.0):
             except Exception as exc:  # noqa: BLE001 — akshare raises many ad-hoc types
                 last = exc
                 if attempt < max_retries:
+                    logger.debug("akshare call attempt %d failed, retrying: %s", attempt + 1, exc)
                     time.sleep(base_delay * (attempt + 1))
         raise last
 
@@ -206,17 +212,21 @@ def load_ohlcv_akshare(symbol: str, curr_date: str) -> pd.DataFrame:
     start_str = (today - pd.DateOffset(years=5)).strftime("%Y-%m-%d")
     end_str = (today + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
+    logger.debug("load_ohlcv_akshare called for %s curr_date=%s", symbol, curr_date)
     df = _download_daily(symbol, start_str, end_str)
     out = _to_capitalized_ohlcv(df)
     if out.empty:
+        logger.warning("akshare returned no OHLCV rows for %s", symbol)
         raise NoMarketDataError(symbol, symbol, "no OHLCV rows from akshare")
 
     cutoff = pd.Timestamp(curr_date)
     out = out[out["Date"] <= cutoff].sort_values("Date")
     if out.empty:
+        logger.warning("akshare returned no rows on or before %s for %s", curr_date, symbol)
         raise NoMarketDataError(
             symbol, symbol, f"no rows on or before {curr_date}"
         )
+    logger.debug("akshare OHLCV returned %d rows for %s", len(out), symbol)
     return out.reset_index(drop=True)
 
 
@@ -227,6 +237,7 @@ def get_stock_data_akshare(
 ) -> str:
     """Return OHLCV as a CSV string (header + rows), same shape as the
     yfinance vendor so agent prompts and downstream parsing are unchanged."""
+    logger.debug("get_stock_data_akshare called for %s (%s to %s)", symbol, start_date, end_date)
     try:
         df = _download_daily(symbol, start_date, end_date)
         market, canonical = _to_akshare_symbol(symbol)
@@ -235,6 +246,7 @@ def get_stock_data_akshare(
         header = f"# Stock data for {label} (akshare/{market}) from {start_date} to {end_date}\n"
         header += f"# Total records: {len(df)}\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        logger.debug("akshare returned %d rows for %s", len(df), symbol)
         return header + csv_string
     except NoMarketDataError:
         raise
@@ -258,6 +270,7 @@ def _strip_ashare_suffix(ticker: str) -> str:
 
 def get_fundamentals_akshare(ticker: str, curr_date: str = None) -> str:
     """Company fundamentals overview from Sina's financial indicator table."""
+    logger.debug("get_fundamentals_akshare called for %s curr_date=%s", ticker, curr_date)
     code = _strip_ashare_suffix(ticker)
     if code is None:
         return (
@@ -270,6 +283,7 @@ def get_fundamentals_akshare(ticker: str, curr_date: str = None) -> str:
         start_year = str(max(2020, int(pd.Timestamp(curr_date or datetime.now()).year) - 3))
         df = _ak_retry(lambda: ak.stock_financial_analysis_indicator(symbol=code, start_year=start_year))
         if df is None or df.empty:
+            logger.warning("akshare returned no fundamentals for %s (%s)", ticker, code)
             raise NoMarketDataError(ticker, code, "no fundamentals returned")
 
         # Keep the most recent up to 8 reporting periods (columns are rows here;
@@ -277,10 +291,12 @@ def get_fundamentals_akshare(ticker: str, curr_date: str = None) -> str:
         recent = df.head(8)
         header = f"# Company Fundamentals for {code} (akshare/Sina, A-share)\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        logger.debug("akshare fundamentals returned %d rows for %s", len(recent), ticker)
         return header + recent.to_csv(index=False)
     except NoMarketDataError:
         raise
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare fundamentals fetch failed for %s: %s", ticker, exc)
         return f"Error retrieving fundamentals for {ticker} via akshare: {exc}"
 
 
@@ -290,6 +306,7 @@ def _financial_abstract_report(ticker: str, curr_date: str | None, section: str)
     ``section`` only labels the report; the abstract covers the balance
     sheet / income / cash-flow key indicators in one table.
     """
+    logger.debug("_financial_abstract_report called for %s section=%s curr_date=%s", ticker, section, curr_date)
     code = _strip_ashare_suffix(ticker)
     if code is None:
         return (
@@ -301,6 +318,7 @@ def _financial_abstract_report(ticker: str, curr_date: str | None, section: str)
 
         df = _ak_retry(lambda: ak.stock_financial_abstract(symbol=code))
         if df is None or df.empty:
+            logger.warning("akshare returned no %s for %s (%s)", section, ticker, code)
             raise NoMarketDataError(ticker, code, "no financial abstract returned")
 
         # Columns are reporting periods (e.g. 20251231); keep those up to
@@ -316,10 +334,12 @@ def _financial_abstract_report(ticker: str, curr_date: str | None, section: str)
 
         header = f"# {section} data for {code} (akshare/Sina, A-share)\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        logger.debug("akshare %s returned %d rows for %s", section, len(table), ticker)
         return header + table.to_csv(index=False)
     except NoMarketDataError:
         raise
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare %s fetch failed for %s: %s", section, ticker, exc)
         return f"Error retrieving {section} for {ticker} via akshare: {exc}"
 
 
@@ -342,6 +362,7 @@ def get_income_statement_akshare(ticker: str, freq: str = "quarterly", curr_date
 
 def get_news_akshare(ticker: str, start_date: str, end_date: str) -> str:
     """Per-ticker news via Eastmoney's search API (reachable from CN)."""
+    logger.debug("get_news_akshare called for %s (%s to %s)", ticker, start_date, end_date)
     code = _strip_ashare_suffix(ticker)
     if code is None:
         return (
@@ -354,6 +375,7 @@ def get_news_akshare(ticker: str, start_date: str, end_date: str) -> str:
         limit = get_config()["news_article_limit"]
         df = _ak_retry(lambda: ak.stock_news_em(symbol=code))
         if df is None or df.empty:
+            logger.warning("akshare returned no news for %s (%s)", ticker, code)
             return f"No news found for {ticker}"
 
         start_dt = pd.Timestamp(start_date)
@@ -385,9 +407,12 @@ def get_news_akshare(ticker: str, start_date: str, end_date: str) -> str:
                 break
 
         if kept == 0:
+            logger.warning("no akshare news for %s within %s..%s", ticker, start_date, end_date)
             return f"No news found for {ticker} between {start_date} and {end_date}"
+        logger.debug("akshare returned %d news articles for %s", kept, ticker)
         return f"## {ticker} News, from {start_date} to {end_date}:\n\n{news_str}"
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare news fetch failed for %s: %s", ticker, exc)
         return f"Error fetching news for {ticker} via akshare: {exc}"
 
 
@@ -397,6 +422,7 @@ def get_global_news_akshare(
     limit: int | None = None,
 ) -> str:
     """Global macro news via Sina's 7x24 flash feed (stable in CN)."""
+    logger.debug("get_global_news_akshare called for %s look_back_days=%s limit=%s", curr_date, look_back_days, limit)
     config = get_config()
     if look_back_days is None:
         look_back_days = config["global_news_lookback_days"]
@@ -407,6 +433,7 @@ def get_global_news_akshare(
 
         df = _ak_retry(lambda: ak.stock_info_global_sina())
         if df is None or df.empty:
+            logger.warning("akshare returned no global news for %s", curr_date)
             return f"No global news found for {curr_date}"
 
         start_dt = pd.Timestamp(curr_date) - pd.Timedelta(days=int(look_back_days))
@@ -430,9 +457,12 @@ def get_global_news_akshare(
                 break
 
         if kept == 0:
+            logger.warning("no akshare global news within %s..%s", start_dt, curr_date)
             return f"No global news found between {start_dt:%Y-%m-%d} and {curr_date}"
+        logger.debug("akshare returned %d global news articles for %s", kept, curr_date)
         return f"## Global Market News, from {start_dt:%Y-%m-%d} to {curr_date}:\n\n{news_str}"
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare global news fetch failed for %s: %s", curr_date, exc)
         return f"Error fetching global news via akshare: {exc}"
 
 
@@ -443,6 +473,7 @@ def get_insider_transactions_akshare(ticker: str) -> str:
     the most recent 90 days. Symbols like ``600519.SS`` / ``000001.SZ`` map to
     Xueqiu's ``SH600519`` / ``SZ000001`` codes.
     """
+    logger.debug("get_insider_transactions_akshare called for %s", ticker)
     code = _strip_ashare_suffix(ticker)
     if code is None:
         return (
@@ -479,9 +510,12 @@ def get_insider_transactions_akshare(ticker: str) -> str:
         header = f"# Insider Transactions data for {ticker} (akshare/Xueqiu, A-share)\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         if match.empty:
+            logger.debug("no akshare insider transactions in the last 90 days for %s", ticker)
             return header + f"No insider transactions in the last 90 days for '{ticker}'"
+        logger.debug("akshare returned %d insider transaction rows for %s", len(match), ticker)
         return header + match.head(30).to_csv(index=False)
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare insider transactions fetch failed for %s: %s", ticker, exc)
         return f"Error retrieving insider transactions for {ticker} via akshare: {exc}"
 
 
@@ -515,12 +549,14 @@ def get_macro_indicators_akshare(
             f"the akshare vendor. Supported: {sorted(_MACRO_SERIES)}."
         )
     func_name, label = _MACRO_SERIES[key]
+    logger.debug("get_macro_indicators_akshare called for %s curr_date=%s", indicator, curr_date)
     try:
         import akshare as ak
 
         func = getattr(ak, func_name)
         df = _ak_retry(func)
         if df is None or df.empty:
+            logger.warning("akshare returned no %s data", label)
             return f"DATA_UNAVAILABLE: no {label} data returned."
 
         # Render the most recent observations, newest first.
@@ -530,8 +566,10 @@ def get_macro_indicators_akshare(
             df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
             df = df.dropna(subset=[date_col]).sort_values(date_col, ascending=False)
         head = df.head(12).to_csv(index=False)
+        logger.debug("akshare returned %d %s rows", len(head.splitlines()) - 1, label)
         return f"## {label} (akshare)\n\n{head}"
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare macro fetch failed for %s: %s", indicator, exc)
         return f"DATA_UNAVAILABLE: akshare macro fetch failed ({exc})."
 
 
@@ -561,6 +599,7 @@ def get_lhb_context(ticker: str, curr_date: str = None, look_back_days: int = 10
     being listed, and the 1/2/5-day post-listing returns — a direct
     A-share sentiment/flow signal.
     """
+    logger.debug("get_lhb_context called for %s curr_date=%s look_back_days=%s", ticker, curr_date, look_back_days)
     code = _ashare_code(ticker)
     if code is None:
         return f"LHB context unavailable for '{ticker}' via akshare (A-share only)."
@@ -587,6 +626,7 @@ def get_lhb_context(ticker: str, curr_date: str = None, look_back_days: int = 10
             "名称", "上榜日", "涨跌幅", "龙虎榜净买额", "龙虎榜买入额",
             "龙虎榜卖出额", "上榜原因", "上榜后1日", "上榜后2日", "上榜后5日",
         )]
+        logger.debug("akshare returned %d LHB rows for %s", len(rows), ticker)
         return (
             f"# LHB (龙虎榜) appearances for {ticker} "
             f"(last {look_back_days} days, akshare/Eastmoney)\n"
@@ -594,12 +634,14 @@ def get_lhb_context(ticker: str, curr_date: str = None, look_back_days: int = 10
             + rows[keep].head(10).to_csv(index=False)
         )
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare LHB fetch failed for %s: %s", ticker, exc)
         return f"DATA_UNAVAILABLE: LHB fetch failed ({exc}). Proceed without it."
 
 
 def get_northbound_flow(curr_date: str = None, look_back_days: int = 10) -> str:
     """Northbound (北向资金) flow: HK->A net buying, the closest A-share
     analogue to institutional money flow. Recent history + latest day summary."""
+    logger.debug("get_northbound_flow called for curr_date=%s look_back_days=%s", curr_date, look_back_days)
     try:
         import akshare as ak
 
@@ -636,8 +678,10 @@ def get_northbound_flow(curr_date: str = None, look_back_days: int = 10) -> str:
 def get_limit_up_context(ticker: str, curr_date: str = None) -> str:
     """Limit-up board (涨停池) context: is the ticker limit-up today, and
     what does the breadth of the limit-up board say about market sentiment."""
+    logger.debug("get_limit_up_context called for %s curr_date=%s", ticker, curr_date)
     code = _ashare_code(ticker)
     if code is None:
+        logger.warning("limit-up context requested for non-A-share ticker %s", ticker)
         return f"Limit-up context unavailable for '{ticker}' via akshare (A-share only)."
     try:
         import akshare as ak
@@ -645,6 +689,7 @@ def get_limit_up_context(ticker: str, curr_date: str = None) -> str:
         date_str = (pd.Timestamp(curr_date or datetime.now())).strftime("%Y%m%d")
         df = _ak_retry(lambda: ak.stock_zt_pool_em(date=date_str))
         if df is None or df.empty:
+            logger.warning("akshare limit-up board empty for %s on %s", ticker, date_str)
             return f"No limit-up board data for {date_str} (weekend/holiday or no data)."
 
         row = df[df["代码"].astype(str) == code]
@@ -671,19 +716,23 @@ def get_limit_up_context(ticker: str, curr_date: str = None) -> str:
         if "连板数" in df.columns and len(df):
             top = df.sort_values("连板数", ascending=False).head(3)
             out.append("\nHighest streak today:\n" + top[["代码", "名称", "连板数", "所属行业"]].to_csv(index=False))
+        logger.debug("limit-up board returned %d rows for %s on %s", len(df), ticker, date_str)
         return "\n".join(out)
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare limit-up board fetch failed for %s on %s: %s", ticker, date_str, exc)
         return f"DATA_UNAVAILABLE: limit-up board fetch failed ({exc}). Proceed without it."
 
 
 def get_sector_context(ticker: str, curr_date: str = None) -> str:
     """Sector/industry breadth: today's best/worst Sina industry sectors and
     their leader stocks — market context for a single-stock decision."""
+    logger.debug("get_sector_context called for %s curr_date=%s", ticker, curr_date)
     try:
         import akshare as ak
 
         df = _ak_retry(lambda: ak.stock_sector_spot(indicator="新浪行业"))
         if df is None or df.empty:
+            logger.warning("akshare sector spot returned no data for %s", ticker)
             return "DATA_UNAVAILABLE: no sector spot data returned."
         df = df.copy()
         df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
@@ -706,6 +755,7 @@ def get_sector_context(ticker: str, curr_date: str = None) -> str:
                 )
 
         stamp = (pd.Timestamp(curr_date) if curr_date else pd.Timestamp.now()).strftime("%Y-%m-%d")
+        logger.debug("sector spot returned %d sectors for %s", len(df), ticker)
         return (
             f"## Sector breadth (Sina industry sectors) on {stamp} "
             f"(akshare)\n# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
@@ -713,6 +763,7 @@ def get_sector_context(ticker: str, curr_date: str = None) -> str:
             + leader_hit
         )
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare sector context fetch failed for %s: %s", ticker, exc)
         return f"DATA_UNAVAILABLE: sector context fetch failed ({exc}). Proceed without it."
 
 
@@ -732,8 +783,10 @@ def get_earnings_forecast(ticker: str, curr_date: str = None) -> str:
     """Earnings forecasts (业绩预告): the company's own guidance for the
     most recent reporting window — a leading signal that hits before the
     actual financial statements."""
+    logger.debug("get_earnings_forecast called for %s curr_date=%s", ticker, curr_date)
     code = _ashare_code(ticker)
     if code is None:
+        logger.warning("earnings forecast requested for non-A-share ticker %s", ticker)
         return f"Earnings forecast unavailable for '{ticker}' via akshare (A-share only)."
     try:
         import akshare as ak
@@ -754,16 +807,19 @@ def get_earnings_forecast(ticker: str, curr_date: str = None) -> str:
             hits.append(f"## Forecast window {period}:\n" + rows[keep].to_csv(index=False))
 
         if not hits:
+            logger.debug("no earnings forecast rows for %s in periods %s", ticker, periods)
             return (
                 f"No earnings forecast (业绩预告) for '{ticker}' in the most recent "
                 "reporting windows. Guidance is optional in A-shares; absence is normal."
             )
+        logger.debug("earnings forecast returned %d windows for %s", len(hits), ticker)
         return (
             f"# Earnings forecasts for {ticker} (akshare/Eastmoney)\n"
             f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             + "\n".join(hits)
         )
     except Exception as exc:  # noqa: BLE001
+        logger.warning("akshare earnings forecast fetch failed for %s: %s", ticker, exc)
         return f"DATA_UNAVAILABLE: earnings forecast fetch failed ({exc}). Proceed without it."
 
 
@@ -795,10 +851,12 @@ _INDEX_SYMBOLS = {"sh000001", "sz399001", "sz399006", "sh000300", "sh000905"}
 
 def _download_index_daily(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
     """Sina index daily (sh000001 / sz399001 ...), clipped to the window."""
+    logger.debug("_download_index_daily called for %s %s..%s", symbol, start_date, end_date)
     import akshare as ak
 
     df = _ak_retry(lambda: ak.stock_zh_index_daily(symbol=symbol))
     if df is None or df.empty:
+        logger.warning("akshare index %s returned no rows", symbol)
         raise NoMarketDataError(symbol, symbol, "index returned no rows")
     df = df.copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
@@ -807,7 +865,9 @@ def _download_index_daily(symbol: str, start_date: str, end_date: str) -> pd.Dat
     end_dt = pd.Timestamp(end_date)
     df = df[(df["date"] >= start_dt) & (df["date"] <= end_dt)]
     if df.empty:
+        logger.warning("akshare index %s has no rows in %s..%s", symbol, start_date, end_date)
         raise NoMarketDataError(symbol, symbol, f"index has no rows in {start_date}..{end_date}")
+    logger.debug("index daily returned %d rows for %s", len(df), symbol)
     return df
 
 
@@ -824,6 +884,10 @@ def get_market_returns(
     ``(None, None, None)`` when price data is unavailable. Never raises:
     callers use None to mean "not yet resolvable".
     """
+    logger.debug(
+        "get_market_returns called for %s trade_date=%s holding_days=%d benchmark=%s",
+        ticker, trade_date, holding_days, benchmark,
+    )
     try:
         end_date = (pd.Timestamp(trade_date) + pd.Timedelta(days=holding_days + 7)).strftime("%Y-%m-%d")
 
@@ -846,6 +910,10 @@ def get_market_returns(
         actual_days = min(holding_days, len(stock_closes) - 1, len(bench_closes) - 1)
         raw = (stock_closes[actual_days] - stock_closes[0]) / stock_closes[0]
         bench_ret = (bench_closes[actual_days] - bench_closes[0]) / bench_closes[0]
+        logger.debug(
+            "realized return computed for %s @ %s: raw=%.4f alpha=%.4f days=%d",
+            ticker, trade_date, raw, raw - bench_ret, actual_days,
+        )
         return raw, raw - bench_ret, actual_days
     except Exception as exc:  # noqa: BLE001 — resolution failure is not fatal
         logger.warning("akshare realized-return lookup failed for %s @ %s: %s", ticker, trade_date, exc)

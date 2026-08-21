@@ -10,12 +10,15 @@ claim. Deterministic, no LLM involved.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 
 import pandas as pd
 from stockstats import wrap
 
 from tradingagents.dataflows.stockstats_utils import load_ohlcv
+
+logger = logging.getLogger(__name__)
 
 # A fixed, common indicator set so the snapshot is the same shape every run.
 DEFAULT_SNAPSHOT_INDICATORS: tuple[str, ...] = (
@@ -32,8 +35,10 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     look-ahead rows, but we re-apply the cutoff defensively — this is a
     verification path, so it must not trust its input to be pre-filtered.
     """
+    logger.debug("_verified_rows called for %s curr_date=%s", symbol, curr_date)
     data = load_ohlcv(symbol, curr_date)
     if data is None or data.empty:
+        logger.warning("no OHLCV data available for %s at %s", symbol, curr_date)
         raise ValueError(f"No OHLCV data available for {symbol}.")
 
     df = data.copy()
@@ -41,6 +46,7 @@ def _verified_rows(symbol: str, curr_date: str) -> pd.DataFrame:
     df = df.dropna(subset=["Date"])
     df = df[df["Date"] <= pd.to_datetime(curr_date)].sort_values("Date")
     if df.empty:
+        logger.warning("no OHLCV rows on or before %s for %s", curr_date, symbol)
         raise ValueError(f"No OHLCV rows on or before {curr_date} for {symbol}.")
     return df
 
@@ -66,6 +72,7 @@ def build_verified_market_snapshot(
     indicators: Iterable[str] | None = None,
 ) -> str:
     """Render a ground-truth snapshot: latest OHLCV row, indicators, recent closes."""
+    logger.debug("build_verified_market_snapshot called for %s curr_date=%s look_back_days=%d", symbol, curr_date, look_back_days)
     # `df` keeps the original capitalized OHLCV columns (Open/High/Low/Close/
     # Volume); stockstats `wrap()` lowercases columns and adds indicator
     # columns, so read raw prices from `df` and indicators from `stock_df`.
@@ -79,6 +86,7 @@ def build_verified_market_snapshot(
             stock_df[name]  # triggers stockstats calculation
             indicator_values[name] = _fmt(stock_df.iloc[-1][name])
         except Exception as exc:  # noqa: BLE001 — one bad indicator shouldn't sink the snapshot
+            logger.warning("indicator %s failed for %s at %s: %s", name, symbol, curr_date, exc)
             indicator_values[name] = f"N/A ({type(exc).__name__})"
 
     latest = df.iloc[-1]
@@ -120,4 +128,5 @@ def build_verified_market_snapshot(
         "percentage moves unless directly supported by tool output with concrete "
         "dates and prices.",
     ]
+    logger.debug("verified snapshot built for %s at %s (%d rows, latest %s)", symbol, curr_date, len(df), latest_date)
     return "\n".join(lines)

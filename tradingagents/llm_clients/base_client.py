@@ -1,6 +1,9 @@
+import logging
 import warnings
 from abc import ABC, abstractmethod
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_content(response):
@@ -19,6 +22,7 @@ def normalize_content(response):
             for item in content
         ]
         response.content = "\n".join(t for t in texts if t)
+        logger.debug("Normalized list content to string (%d text blocks)", len(texts))
     return response
 
 
@@ -29,6 +33,7 @@ class BaseLLMClient(ABC):
         self.model = model
         self.base_url = base_url
         self.kwargs = kwargs
+        logger.debug("Initialized %s for model=%s base_url=%s", self.__class__.__name__, model, base_url)
 
     def get_provider_name(self) -> str:
         """Return the provider name used in warning messages."""
@@ -42,14 +47,12 @@ class BaseLLMClient(ABC):
         if self.validate_model():
             return
 
-        warnings.warn(
-            (
-                f"Model '{self.model}' is not in the known model list for "
-                f"provider '{self.get_provider_name()}'. Continuing anyway."
-            ),
-            RuntimeWarning,
-            stacklevel=2,
+        message = (
+            f"Model '{self.model}' is not in the known model list for "
+            f"provider '{self.get_provider_name()}'. Continuing anyway."
         )
+        logger.warning("%s", message)
+        warnings.warn(message, RuntimeWarning, stacklevel=2)
 
     @abstractmethod
     def get_llm(self) -> Any:

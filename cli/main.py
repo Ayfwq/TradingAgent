@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 import sys
 import time
@@ -50,6 +51,8 @@ from tradingagents.graph.analyst_execution import (
 )
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.reporting import write_report_tree
+
+logger = logging.getLogger(__name__)
 
 console = Console()
 
@@ -494,6 +497,7 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
 
 def get_user_selections():
     """Get all user selections before starting the analysis display."""
+    logger.debug("Collecting interactive user selections")
     # Display ASCII art welcome message
     with open(Path(__file__).parent / "static" / "welcome.txt", encoding="utf-8") as f:
         welcome_ascii = f.read()
@@ -724,6 +728,15 @@ def get_user_selections():
             "Configure Claude effort level", ask_anthropic_effort,
         )
 
+    logger.info(
+        "User selections: ticker=%s asset_type=%s analysis_date=%s provider=%s analysts=%s output_language=%s",
+        selected_ticker,
+        asset_type.value,
+        analysis_date,
+        selected_llm_provider,
+        [analyst.value for analyst in selected_analysts],
+        output_language,
+    )
     return {
         "ticker": selected_ticker,
         "asset_type": asset_type.value,
@@ -751,10 +764,12 @@ def get_analysis_date():
             # Validate date format and ensure it's not in the future
             analysis_date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
             if analysis_date.date() > datetime.datetime.now().date():
+                logger.debug("Rejected future analysis date %s", date_str)
                 console.print("[red]Error: Analysis date cannot be in the future[/red]")
                 continue
             return date_str
         except ValueError:
+            logger.debug("Invalid analysis date format: %s", date_str)
             console.print(
                 "[red]Error: Invalid date format. Please use YYYY-MM-DD[/red]"
             )
@@ -762,11 +777,13 @@ def get_analysis_date():
 
 def save_report_to_disk(final_state, ticker: str, save_path: Path):
     """Save the complete analysis report to disk (shared CLI/API writer)."""
+    logger.debug("save_report_to_disk ticker=%s save_path=%s", ticker, save_path)
     return write_report_tree(final_state, ticker, save_path)
 
 
 def display_complete_report(final_state):
     """Display the complete analysis report sequentially (avoids truncation)."""
+    logger.debug("display_complete_report invoked")
     console.print()
     console.print(Rule("Complete Analysis Report", style="bold green"))
 
@@ -998,14 +1015,29 @@ def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
     # the flag preserves TRADINGAGENTS_CHECKPOINT_ENABLED / the default (#976).
     if checkpoint is not None:
         config["checkpoint_enabled"] = checkpoint
+    logger.debug(
+        "Built run config: provider=%s backend_url=%s quick=%s deep=%s rounds=%s/%s checkpoint=%s",
+        config.get("llm_provider"), config.get("backend_url"),
+        config.get("quick_think_llm"), config.get("deep_think_llm"),
+        config.get("max_debate_rounds"), config.get("max_risk_discuss_rounds"),
+        config.get("checkpoint_enabled"),
+    )
     return config
 
 
 def run_analysis(checkpoint: bool | None = None):
+    logger.info("Starting interactive analysis run (checkpoint=%s)", checkpoint)
     # First get all user selections
     selections = get_user_selections()
 
     config = _build_run_config(selections, checkpoint)
+    logger.info(
+        "Run config loaded: provider=%s backend_url=%s quick_think=%s deep_think=%s rounds=%s/%s output_language=%s",
+        config.get("llm_provider"), config.get("backend_url"),
+        config.get("quick_think_llm"), config.get("deep_think_llm"),
+        config.get("max_debate_rounds"), config.get("max_risk_discuss_rounds"),
+        config.get("output_language"),
+    )
 
     # Create stats callback handler for tracking LLM/tool calls
     stats_handler = StatsCallbackHandler()
@@ -1237,6 +1269,13 @@ def run_analysis(checkpoint: bool | None = None):
         for chunk in trace:
             final_state.update(chunk)
 
+        logger.info(
+            "Analysis finished for %s on %s: decision=%s reports=%d",
+            selections["ticker"], selections["analysis_date"],
+            bool(final_state.get("final_trade_decision")),
+            len([k for k in final_state if k.endswith("_report") or k in ("investment_plan", "trader_investment_plan", "final_trade_decision")]),
+        )
+
         # Update all agent statuses to completed
         for agent in message_buffer.agent_status:
             message_buffer.update_agent_status(agent, "completed")
@@ -1269,9 +1308,11 @@ def run_analysis(checkpoint: bool | None = None):
         save_path = Path(save_path_str)
         try:
             report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
+            logger.info("Report saved to %s (complete report: %s)", save_path.resolve(), report_file.name)
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
             console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
         except Exception as e:
+            logger.exception("Failed to save report to %s", save_path)
             console.print(f"[red]Error saving report: {e}[/red]")
 
     # Prompt to display full report
@@ -1294,13 +1335,16 @@ def analyze(
         help="Delete all saved checkpoints before running (force fresh start).",
     ),
 ):
+    logger.info("analyze command invoked: checkpoint=%s clear_checkpoints=%s", checkpoint, clear_checkpoints)
     if clear_checkpoints:
         from tradingagents.graph.checkpointer import clear_all_checkpoints
         n = clear_all_checkpoints(DEFAULT_CONFIG["data_cache_dir"])
+        logger.info("Cleared %s checkpoint(s) from %s", n, DEFAULT_CONFIG["data_cache_dir"])
         console.print(f"[yellow]Cleared {n} checkpoint(s).[/yellow]")
     try:
         run_analysis(checkpoint=checkpoint)
     except _NO_CONSOLE_ERRORS:
+        logger.exception("Interactive CLI failed: no Windows console buffer available")
         # A terminal with no console buffer cannot host the interactive prompts.
         # Emit one actionable line on stderr instead of a prompt_toolkit
         # traceback; plain text, since rich may not render here either (#1138).

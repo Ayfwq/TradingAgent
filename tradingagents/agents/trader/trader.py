@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 
 from langchain_core.messages import AIMessage
 
@@ -17,6 +18,8 @@ from tradingagents.agents.utils.structured import (
     invoke_structured_or_freetext,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_trader(llm):
     structured_llm = bind_structured(llm, TraderProposal, "Trader")
@@ -25,6 +28,8 @@ def create_trader(llm):
         company_name = state["company_of_interest"]
         instrument_context = get_instrument_context_from_state(state)
         investment_plan = state["investment_plan"]
+
+        logger.debug("Trader invoked: ticker=%s", state.get("company_of_interest"))
 
         messages = [
             {
@@ -50,13 +55,20 @@ def create_trader(llm):
             },
         ]
 
-        trader_plan = invoke_structured_or_freetext(
-            structured_llm,
-            llm,
-            messages,
-            render_trader_proposal,
-            "Trader",
-        )
+        try:
+            trader_plan = invoke_structured_or_freetext(
+                structured_llm,
+                llm,
+                messages,
+                render_trader_proposal,
+                "Trader",
+            )
+            logger.debug("Trader LLM call completed: output_length=%d", len(trader_plan))
+        except Exception as exc:
+            logger.exception("Trader LLM call failed: %s", exc)
+            raise
+
+        logger.debug("Trader node return: output_length=%d", len(trader_plan))
 
         return {
             "messages": [AIMessage(content=trader_plan)],

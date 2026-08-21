@@ -1,7 +1,11 @@
+import logging
+
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_bull_researcher(llm):
@@ -24,6 +28,8 @@ def create_bull_researcher(llm):
             else "Asset fundamentals report (may be unavailable for crypto)"
         )
 
+        logger.debug("Bull Researcher invoked: ticker=%s debate_round=%d", state.get("company_of_interest"), state.get("investment_debate_state", {}).get("count", 0))
+
         prompt = f"""You are a Bull Analyst advocating for investing in the {target_label}. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
 
 Key points to focus on:
@@ -44,7 +50,12 @@ Last bear argument: {current_response}
 Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position.
 """ + get_language_instruction()
 
-        response = llm.invoke(prompt)
+        try:
+            response = llm.invoke(prompt)
+            logger.debug("Bull Researcher LLM call completed (%d chars)", len(response.content or ""))
+        except Exception as exc:
+            logger.exception("Bull Researcher LLM call failed: %s", exc)
+            raise
 
         argument = f"Bull Analyst: {response.content}"
 
@@ -55,6 +66,8 @@ Use this information to deliver a compelling bull argument, refute the bear's co
             "current_response": argument,
             "count": investment_debate_state["count"] + 1,
         }
+
+        logger.debug("Bull Researcher finished: argument=%d chars", len(argument or ""))
 
         return {"investment_debate_state": new_investment_debate_state}
 

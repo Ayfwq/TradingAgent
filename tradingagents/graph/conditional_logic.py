@@ -1,6 +1,10 @@
 # TradingAgents/graph/conditional_logic.py
 
+import logging
+
 from tradingagents.agents.utils.agent_states import AgentState
+
+logger = logging.getLogger(__name__)
 
 
 class ConditionalLogic:
@@ -44,7 +48,13 @@ class ConditionalLogic:
             and getattr(last_message, "tool_calls", None)
             and self._tool_rounds(state, messages_key) < self.max_tool_rounds
         ):
+            logger.debug(
+                "Analyst %s requesting more tools (round %d/%d) -> %s",
+                messages_key, self._tool_rounds(state, messages_key),
+                self.max_tool_rounds, tools_node,
+            )
             return tools_node
+        logger.debug("Analyst %s finished tool rounds -> %s", messages_key, clear_node)
         return clear_node
 
     def should_continue_market(self, state: AgentState):
@@ -75,9 +85,21 @@ class ConditionalLogic:
         if (
             state["investment_debate_state"]["count"] >= 2 * self.max_debate_rounds
         ):  # 3 rounds of back-and-forth between 2 agents
+            logger.debug(
+                "Debate complete after %d responses (max=%d) -> Research Manager",
+                state["investment_debate_state"]["count"], 2 * self.max_debate_rounds,
+            )
             return "Research Manager"
         if state["investment_debate_state"]["current_response"].startswith("Bull"):
+            logger.debug(
+                "Bull spoke (round %d/%d) -> Bear Researcher",
+                state["investment_debate_state"]["count"], 2 * self.max_debate_rounds,
+            )
             return "Bear Researcher"
+        logger.debug(
+            "Bear spoke (round %d/%d) -> Bull Researcher",
+            state["investment_debate_state"]["count"], 2 * self.max_debate_rounds,
+        )
         return "Bull Researcher"
 
     def should_continue_risk_analysis(self, state: AgentState) -> str:
@@ -85,9 +107,25 @@ class ConditionalLogic:
         if (
             state["risk_debate_state"]["count"] >= 3 * self.max_risk_discuss_rounds
         ):  # 3 rounds of back-and-forth between 3 agents
+            logger.debug(
+                "Risk debate complete after %d responses (max=%d) -> Portfolio Manager",
+                state["risk_debate_state"]["count"], 3 * self.max_risk_discuss_rounds,
+            )
             return "Portfolio Manager"
         if state["risk_debate_state"]["latest_speaker"].startswith("Aggressive"):
+            logger.debug(
+                "Aggressive spoke (round %d/%d) -> Conservative Analyst",
+                state["risk_debate_state"]["count"], 3 * self.max_risk_discuss_rounds,
+            )
             return "Conservative Analyst"
         if state["risk_debate_state"]["latest_speaker"].startswith("Conservative"):
+            logger.debug(
+                "Conservative spoke (round %d/%d) -> Neutral Analyst",
+                state["risk_debate_state"]["count"], 3 * self.max_risk_discuss_rounds,
+            )
             return "Neutral Analyst"
+        logger.debug(
+            "Neutral spoke (round %d/%d) -> Aggressive Analyst",
+            state["risk_debate_state"]["count"], 3 * self.max_risk_discuss_rounds,
+        )
         return "Aggressive Analyst"

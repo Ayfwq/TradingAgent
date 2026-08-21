@@ -1,7 +1,11 @@
+import logging
+
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_aggressive_debator(llm):
@@ -21,6 +25,8 @@ def create_aggressive_debator(llm):
 
         trader_decision = state["trader_investment_plan"]
 
+        logger.debug("Aggressive Analyst invoked: ticker=%s debate_round=%d", state.get("company_of_interest"), state.get("risk_debate_state", {}).get("count", 0))
+
         prompt = f"""As the Aggressive Risk Analyst, your role is to actively champion high-reward, high-risk opportunities, emphasizing bold strategies and competitive advantages. When evaluating the trader's decision or plan, focus intently on the potential upside, growth potential, and innovative benefits—even when these come with elevated risk. Use the provided market data and sentiment analysis to strengthen your arguments and challenge the opposing views. Specifically, respond directly to each point made by the conservative and neutral analysts, countering with data-driven rebuttals and persuasive reasoning. Highlight where their caution might miss critical opportunities or where their assumptions may be overly conservative. Here is the trader's decision:
 
 {trader_decision}
@@ -36,7 +42,12 @@ Here is the current conversation history: {history} Here are the last arguments 
 
 Engage actively by addressing any specific concerns raised, refuting the weaknesses in their logic, and asserting the benefits of risk-taking to outpace market norms. Maintain a focus on debating and persuading, not just presenting data. Challenge each counterpoint to underscore why a high-risk approach is optimal. Output conversationally as if you are speaking without any special formatting.""" + get_language_instruction()
 
-        response = llm.invoke(prompt)
+        try:
+            response = llm.invoke(prompt)
+            logger.debug("Aggressive Analyst LLM call completed (%d chars)", len(response.content or ""))
+        except Exception as exc:
+            logger.exception("Aggressive Analyst LLM call failed: %s", exc)
+            raise
 
         argument = f"Aggressive Analyst: {response.content}"
 
@@ -53,6 +64,8 @@ Engage actively by addressing any specific concerns raised, refuting the weaknes
             ),
             "count": risk_debate_state["count"] + 1,
         }
+
+        logger.debug("Aggressive Analyst finished: argument=%d chars", len(argument or ""))
 
         return {"risk_debate_state": new_risk_debate_state}
 

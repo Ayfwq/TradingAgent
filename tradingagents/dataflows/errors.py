@@ -17,6 +17,10 @@ they share ``NoMarketDataError`` and differ only in the free-text ``detail``.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class VendorError(Exception):
     """Base for any condition where a vendor could not return usable data."""
@@ -40,6 +44,7 @@ class NoMarketDataError(VendorError):
             msg += f" (queried as {canonical!r})"
         if detail:
             msg += f": {detail}"
+        logger.warning("NoMarketDataError raised for %s (canonical %s): %s", symbol, self.canonical, self.detail)
         super().__init__(msg)
 
 

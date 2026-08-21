@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from tradingagents.agents.schemas import ResearchPlan, render_research_plan
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
@@ -13,6 +15,8 @@ from tradingagents.agents.utils.structured import (
     invoke_structured_or_freetext,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def create_research_manager(llm):
     structured_llm = bind_structured(llm, ResearchPlan, "Research Manager")
@@ -22,6 +26,7 @@ def create_research_manager(llm):
         history = state["investment_debate_state"].get("history", "")
 
         investment_debate_state = state["investment_debate_state"]
+        logger.debug("Research Manager invoked: ticker=%s", state.get("company_of_interest"))
 
         prompt = f"""As the Research Manager and debate facilitator, your role is to critically evaluate this round of debate and deliver a clear, actionable investment plan for the trader.
 
@@ -45,13 +50,18 @@ Commit to a clear stance whenever the debate's strongest arguments warrant one; 
 
 {NO_EXTERNAL_TOOLS}""" + get_language_instruction()
 
-        investment_plan = invoke_structured_or_freetext(
-            structured_llm,
-            llm,
-            prompt,
-            render_research_plan,
-            "Research Manager",
-        )
+        try:
+            investment_plan = invoke_structured_or_freetext(
+                structured_llm,
+                llm,
+                prompt,
+                render_research_plan,
+                "Research Manager",
+            )
+            logger.debug("Research Manager LLM call completed: output_length=%d", len(investment_plan))
+        except Exception as exc:
+            logger.exception("Research Manager LLM call failed: %s", exc)
+            raise
 
         new_investment_debate_state = {
             "judge_decision": investment_plan,
@@ -61,6 +71,8 @@ Commit to a clear stance whenever the debate's strongest arguments warrant one; 
             "current_response": investment_plan,
             "count": investment_debate_state["count"],
         }
+
+        logger.debug("Research Manager node return: output_length=%d", len(investment_plan))
 
         return {
             "investment_debate_state": new_investment_debate_state,

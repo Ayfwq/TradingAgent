@@ -1,6 +1,7 @@
 """yfinance-based news data fetching functions."""
 
 import contextlib
+import logging
 from datetime import datetime, timedelta, timezone
 
 import yfinance as yf
@@ -9,6 +10,8 @@ from dateutil.relativedelta import relativedelta
 from .config import get_config
 from .stockstats_utils import yf_retry
 from .symbol_utils import normalize_symbol
+
+logger = logging.getLogger(__name__)
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -100,6 +103,7 @@ def get_news_yfinance(
     Returns:
         Formatted string containing news articles
     """
+    logger.debug("get_news_yfinance called for %s (%s to %s)", ticker, start_date, end_date)
     article_limit = get_config()["news_article_limit"]
     # Query Yahoo with the canonical symbol, like every other yfinance path —
     # a raw broker/forex/crypto alias (XAUUSD, BTCUSD) otherwise silently
@@ -136,11 +140,17 @@ def get_news_yfinance(
             filtered_count += 1
 
         if filtered_count == 0:
+            logger.warning(
+                "no yfinance news for %s within %s..%s (fetched %d)",
+                ticker, start_date, end_date, len(news),
+            )
             return f"No news found for {ticker}{resolved} between {start_date} and {end_date}"
 
+        logger.debug("yfinance returned %d news articles for %s", filtered_count, ticker)
         return f"## {ticker}{resolved} News, from {start_date} to {end_date}:\n\n{news_str}"
 
     except Exception as e:
+        logger.warning("yfinance news fetch failed for %s: %s", ticker, e)
         return f"Error fetching news for {ticker}: {str(e)}"
 
 
@@ -198,6 +208,7 @@ def get_global_news_yfinance(
                 break
 
         if not all_news:
+            logger.warning("yfinance returned no global news for %s", curr_date)
             return f"No global news found for {curr_date}"
 
         # Calculate date range
@@ -224,9 +235,12 @@ def get_global_news_yfinance(
         # All candidates fell outside the window -> say so rather than return an
         # empty-bodied report (#993).
         if kept == 0:
+            logger.warning("no yfinance global news within %s..%s (fetched %d)", start_date, curr_date, len(all_news))
             return f"No global news found between {start_date} and {curr_date}"
 
+        logger.debug("yfinance returned %d global news articles for %s", kept, curr_date)
         return f"## Global Market News, from {start_date} to {curr_date}:\n\n{news_str}"
 
     except Exception as e:
+        logger.warning("yfinance global news fetch failed for %s: %s", curr_date, e)
         return f"Error fetching global news: {str(e)}"

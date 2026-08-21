@@ -1,8 +1,11 @@
+import logging
 from typing import Annotated
 
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -21,7 +24,20 @@ def get_news(
     Returns:
         str: A formatted string containing news data
     """
-    return route_to_vendor("get_news", ticker, start_date, end_date)
+    logger.debug(
+        "get_news called: ticker=%s, start_date=%s, end_date=%s",
+        ticker, start_date, end_date,
+    )
+    try:
+        result = route_to_vendor("get_news", ticker, start_date, end_date)
+        logger.debug("get_news returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception(
+            "get_news failed: ticker=%s, start_date=%s, end_date=%s",
+            ticker, start_date, end_date,
+        )
+        raise
 
 @tool
 def get_global_news(
@@ -43,7 +59,20 @@ def get_global_news(
     Returns:
         str: A formatted string containing global news data
     """
-    return route_to_vendor("get_global_news", curr_date, look_back_days, limit)
+    logger.debug(
+        "get_global_news called: curr_date=%s, look_back_days=%s, limit=%s",
+        curr_date, look_back_days, limit,
+    )
+    try:
+        result = route_to_vendor("get_global_news", curr_date, look_back_days, limit)
+        logger.debug("get_global_news returned %d chars", len(result))
+        return result
+    except Exception:
+        logger.exception(
+            "get_global_news failed: curr_date=%s, look_back_days=%s, limit=%s",
+            curr_date, look_back_days, limit,
+        )
+        raise
 
 @tool
 def get_insider_transactions(
@@ -57,4 +86,11 @@ def get_insider_transactions(
     Returns:
         str: A report of insider transaction data
     """
-    return route_to_vendor("get_insider_transactions", ticker)
+    logger.debug("get_insider_transactions called: ticker=%s", ticker)
+    try:
+        result = route_to_vendor("get_insider_transactions", ticker)
+        logger.debug("get_insider_transactions returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception("get_insider_transactions failed: ticker=%s", ticker)
+        raise

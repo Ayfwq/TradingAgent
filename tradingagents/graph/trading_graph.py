@@ -90,12 +90,23 @@ class TradingAgentsGraph:
         self.config = apply_data_vendors_env(config or DEFAULT_CONFIG)
         self.callbacks = callbacks or []
 
+        logger.info(
+            "Initializing TradingAgentsGraph debug=%s selected_analysts=%s provider=%s "
+            "deep_llm=%s quick_llm=%s",
+            debug, selected_analysts, self.config.get("llm_provider"),
+            self.config.get("deep_think_llm"), self.config.get("quick_think_llm"),
+        )
+
         # Update the interface's config
         set_config(self.config)
 
         # Create necessary directories
         os.makedirs(self.config["data_cache_dir"], exist_ok=True)
         os.makedirs(self.config["results_dir"], exist_ok=True)
+        logger.debug(
+            "Directories ready: data_cache_dir=%s results_dir=%s",
+            self.config["data_cache_dir"], self.config["results_dir"],
+        )
 
         # Initialize LLMs with provider-specific thinking configuration
         llm_kwargs = self._get_provider_kwargs()
@@ -113,21 +124,32 @@ class TradingAgentsGraph:
         if self.callbacks:
             llm_kwargs["callbacks"] = self.callbacks
 
-        deep_client = create_llm_client(
-            provider=self.config["llm_provider"],
-            model=self.config["deep_think_llm"],
-            base_url=self.config.get("backend_url"),
-            **llm_kwargs,
-        )
-        quick_client = create_llm_client(
-            provider=self.config["llm_provider"],
-            model=self.config["quick_think_llm"],
-            base_url=self.config.get("backend_url"),
-            **llm_kwargs,
-        )
+        try:
+            deep_client = create_llm_client(
+                provider=self.config["llm_provider"],
+                model=self.config["deep_think_llm"],
+                base_url=self.config.get("backend_url"),
+                **llm_kwargs,
+            )
+            quick_client = create_llm_client(
+                provider=self.config["llm_provider"],
+                model=self.config["quick_think_llm"],
+                base_url=self.config.get("backend_url"),
+                **llm_kwargs,
+            )
+        except Exception as exc:
+            logger.exception(
+                "Failed to create LLM clients for provider=%s: %s",
+                self.config.get("llm_provider"), exc,
+            )
+            raise
 
         self.deep_thinking_llm = deep_client.get_llm()
         self.quick_thinking_llm = quick_client.get_llm()
+        logger.debug(
+            "LLM clients created: deep=%s quick=%s",
+            self.config["deep_think_llm"], self.config["quick_think_llm"],
+        )
 
         self.memory_log = TradingMemoryLog(self.config)
 
@@ -162,9 +184,16 @@ class TradingAgentsGraph:
         self.selected_analysts = tuple(selected_analysts)
 
         # Set up the graph: keep the workflow for recompilation with a checkpointer.
-        self.workflow = self.graph_setup.setup_graph(selected_analysts)
-        self.graph = self.workflow.compile()
+        try:
+            self.workflow = self.graph_setup.setup_graph(selected_analysts)
+            self.graph = self.workflow.compile()
+        except Exception as exc:
+            logger.exception("Failed to build/compile the trading graph: %s", exc)
+            raise
         self._checkpointer_ctx = None
+        logger.info(
+            "Graph compiled: nodes=%s", list(getattr(self.graph, "nodes", {}).keys())
+        )
 
     def _get_provider_kwargs(self) -> dict[str, Any]:
         """Get provider-specific kwargs for LLM client creation."""
@@ -215,7 +244,7 @@ class TradingAgentsGraph:
         land back in the owning analyst's scratch messages instead of the
         shared history.
         """
-        return {
+        tool_nodes = {
             "market": ToolNode(
                 [
                     # Core stock data tools
@@ -265,6 +294,12 @@ class TradingAgentsGraph:
                 messages_key="fundamentals_messages",
             ),
         }
+        for channel, node in tool_nodes.items():
+            logger.debug(
+                "ToolNode %s ready with %d tools (channel=%s)",
+                channel, len(node.tools_by_name), node.messages_name,
+            )
+        return tool_nodes
 
     def _resolve_benchmark(self, ticker: str) -> str:
         """Pick the benchmark ticker for alpha calculation against ``ticker``.
@@ -279,13 +314,17 @@ class TradingAgentsGraph:
         """
         explicit = self.config.get("benchmark_ticker")
         if explicit:
+            logger.debug("Benchmark overridden by config for %s: %s", ticker, explicit)
             return explicit
         benchmark_map = self.config.get("benchmark_map", {})
         ticker_upper = ticker.upper()
         for suffix, benchmark in benchmark_map.items():
             if suffix and ticker_upper.endswith(suffix.upper()):
+                logger.debug("Benchmark for %s resolved via suffix %s: %s", ticker, suffix, benchmark)
                 return benchmark
-        return benchmark_map.get("", "SPY")
+        benchmark = benchmark_map.get("", "SPY")
+        logger.debug("Benchmark for %s fell back to default: %s", ticker, benchmark)
+        return benchmark
 
     def _fetch_returns(
         self, ticker: str, trade_date: str, holding_days: int = 5,
@@ -307,7 +346,15 @@ class TradingAgentsGraph:
         try:
             resolved = get_market_returns(ticker, trade_date, holding_days, benchmark)
             if resolved != (None, None, None):
+                logger.debug(
+                    "Realized returns for %s on %s: raw=%s alpha=%s days=%s",
+                    ticker, trade_date, *resolved,
+                )
                 return resolved
+            logger.debug(
+                "akshare returned no price data for %s on %s (too recent/delisted)",
+                ticker, trade_date,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning("akshare realized-return lookup failed for %s: %s", ticker, exc)
 
@@ -326,6 +373,10 @@ class TradingAgentsGraph:
             bench = yf.Ticker(benchmark).history(start=trade_date, end=end_str)
 
             if len(stock) < 2 or len(bench) < 2:
+                logger.debug(
+                    "yfinance returned insufficient bars for %s/%s on %s (stock=%d bench=%d)",
+                    ticker, benchmark, trade_date, len(stock), len(bench),
+                )
                 return None, None, None
 
             actual_days = min(holding_days, len(stock) - 1, len(bench) - 1)
@@ -338,6 +389,10 @@ class TradingAgentsGraph:
                 / bench["Close"].iloc[0]
             )
             alpha = raw - bench_ret
+            logger.debug(
+                "yfinance realized returns for %s on %s: raw=%.6f alpha=%.6f days=%d",
+                ticker, trade_date, raw, alpha, actual_days,
+            )
             return raw, alpha, actual_days
         except Exception as e:
             logger.warning(
@@ -359,6 +414,7 @@ class TradingAgentsGraph:
         pending = [e for e in self.memory_log.get_pending_entries() if e["ticker"] == ticker]
         if not pending:
             return
+        logger.info("Resolving %d pending entry/entries for %s", len(pending), ticker)
 
         benchmark = self._resolve_benchmark(ticker)
         updates = []
@@ -367,6 +423,10 @@ class TradingAgentsGraph:
                 ticker, entry["date"], benchmark=benchmark,
             )
             if raw is None:
+                logger.debug(
+                    "Pending entry %s on %s still lacks price data; will retry next run",
+                    ticker, entry["date"],
+                )
                 continue  # price not available yet — try again next run
             reflection = self.reflector.reflect_on_final_decision(
                 final_decision=entry.get("decision", ""),
@@ -384,6 +444,9 @@ class TradingAgentsGraph:
             })
 
         if updates:
+            logger.info(
+                "Writing outcomes for %d resolved entry/entries of %s", len(updates), ticker
+            )
             self.memory_log.batch_update_with_outcomes(updates)
 
     def resolve_instrument_context(self, ticker: str, asset_type: str = "stock") -> str:
@@ -396,6 +459,10 @@ class TradingAgentsGraph:
         graph regardless of entry point.
         """
         identity = resolve_instrument_identity(ticker)
+        logger.debug(
+            "Instrument identity resolved for %s (asset_type=%s): %s",
+            ticker, asset_type, identity,
+        )
         return build_instrument_context(ticker, asset_type, identity)
 
     def _run_signature(self, asset_type: str) -> str:
@@ -424,6 +491,10 @@ class TradingAgentsGraph:
         successful node on a subsequent invocation with the same ticker+date.
         """
         self.ticker = company_name
+        logger.info(
+            "propagate() called: ticker=%s trade_date=%s asset_type=%s",
+            company_name, trade_date, asset_type,
+        )
 
         # Resolve any pending memory-log entries for this ticker before the pipeline runs.
         self._resolve_pending_entries(company_name)
@@ -448,7 +519,16 @@ class TradingAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
         try:
+            logger.info(
+                "Executing graph pipeline for %s on %s (asset_type=%s)",
+                company_name, trade_date, asset_type,
+            )
             return self._run_graph(company_name, trade_date, asset_type=asset_type)
+        except Exception as exc:
+            logger.exception(
+                "Graph pipeline failed for %s on %s: %s", company_name, trade_date, exc
+            )
+            raise
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
@@ -484,34 +564,47 @@ class TradingAgentsGraph:
             instrument_context=instrument_context,
         )
         args = self.propagator.get_graph_args()
+        logger.debug(
+            "Initial state prepared for %s on %s; past_context=%s",
+            company_name, trade_date, bool(past_context),
+        )
 
         # Inject thread_id so same ticker+date+graph-shape resumes; a different
         # date or graph shape starts fresh (#1089).
         if self.config.get("checkpoint_enabled"):
             tid = thread_id(company_name, str(trade_date), self._run_signature(asset_type))
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = tid
+            logger.debug("Checkpoint thread_id=%s", tid)
 
-        if self.debug:
-            trace = []
-            last_printed = None
-            for chunk in self.graph.stream(init_agent_state, **args):
-                if chunk["messages"]:
-                    msg = chunk["messages"][-1]
-                    # Nodes after the trader don't append to messages, so the
-                    # same trailing message repeats across chunks. Print it only
-                    # when it changes (#1027); the trace/state merge is unchanged.
-                    signature = (type(msg).__name__, getattr(msg, "content", None))
-                    if signature != last_printed:
-                        msg.pretty_print()
-                        last_printed = signature
-                    trace.append(chunk)
-            # Streamed chunks are per-node deltas. Merge them so the returned
-            # state matches what graph.invoke() yields in the non-debug path.
-            final_state = {}
-            for chunk in trace:
-                final_state.update(chunk)
-        else:
-            final_state = self.graph.invoke(init_agent_state, **args)
+        try:
+            if self.debug:
+                trace = []
+                last_printed = None
+                for chunk in self.graph.stream(init_agent_state, **args):
+                    if chunk["messages"]:
+                        msg = chunk["messages"][-1]
+                        # Nodes after the trader don't append to messages, so the
+                        # same trailing message repeats across chunks. Print it only
+                        # when it changes (#1027); the trace/state merge is unchanged.
+                        signature = (type(msg).__name__, getattr(msg, "content", None))
+                        if signature != last_printed:
+                            msg.pretty_print()
+                            last_printed = signature
+                        trace.append(chunk)
+                # Streamed chunks are per-node deltas. Merge them so the returned
+                # state matches what graph.invoke() yields in the non-debug path.
+                final_state = {}
+                for chunk in trace:
+                    final_state.update(chunk)
+                logger.debug("Debug stream executed with %d chunks", len(trace))
+            else:
+                final_state = self.graph.invoke(init_agent_state, **args)
+        except Exception as exc:
+            logger.exception(
+                "Graph execution failed for %s on %s: %s", company_name, trade_date, exc
+            )
+            raise
+        logger.info("Graph execution finished for %s on %s", company_name, trade_date)
 
         # Store current state for reflection.
         self.curr_state = final_state
@@ -520,6 +613,10 @@ class TradingAgentsGraph:
         self._log_state(trade_date, final_state)
 
         # Store decision for deferred reflection on the next same-ticker run.
+        decision = final_state.get("final_trade_decision")
+        logger.info(
+            "Storing decision for %s on %s: %s", company_name, trade_date, decision
+        )
         self.memory_log.store_decision(
             ticker=company_name,
             trade_date=trade_date,
@@ -532,8 +629,13 @@ class TradingAgentsGraph:
                 self.config["data_cache_dir"], company_name, str(trade_date),
                 self._run_signature(asset_type),
             )
+            logger.debug("Checkpoint cleared for %s on %s", company_name, trade_date)
 
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        signal = self.process_signal(final_state["final_trade_decision"])
+        logger.info(
+            "Final decision for %s on %s: %s", company_name, trade_date, signal
+        )
+        return final_state, signal
 
     def _log_state(self, trade_date, final_state):
         """Log the final state to a JSON file."""
@@ -574,9 +676,14 @@ class TradingAgentsGraph:
         directory.mkdir(parents=True, exist_ok=True)
 
         log_path = directory / f"full_states_log_{trade_date}.json"
-        with open(log_path, "w", encoding="utf-8") as f:
-            json.dump(self.log_states_dict[str(trade_date)], f, indent=4)
+        try:
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(self.log_states_dict[str(trade_date)], f, indent=4)
+            logger.debug("State snapshot written to %s", log_path)
+        except Exception as exc:
+            logger.error("Failed to write state snapshot %s: %s", log_path, exc)
 
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""
+        logger.debug("Processing full signal: %s", full_signal)
         return self.signal_processor.process_signal(full_signal)

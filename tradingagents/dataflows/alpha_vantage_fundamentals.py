@@ -1,6 +1,9 @@
 import json
+import logging
 
 from .alpha_vantage_common import _make_api_request
+
+logger = logging.getLogger(__name__)
 
 
 def _filter_reports_by_date(result, curr_date: str):
@@ -10,6 +13,7 @@ def _filter_reports_by_date(result, curr_date: str):
     parse, filter, and re-serialize. A non-JSON body or an unset ``curr_date`` is
     returned unchanged.
     """
+    logger.debug("_filter_reports_by_date called for curr_date=%s", curr_date)
     if not curr_date or not isinstance(result, str):
         return result
     try:
@@ -38,27 +42,36 @@ def get_fundamentals(ticker: str, curr_date: str = None) -> str:
     Returns:
         str: Company overview data including financial ratios and key metrics
     """
+    logger.debug("get_fundamentals called for %s curr_date=%s", ticker, curr_date)
     params = {
         "symbol": ticker,
     }
 
-    return _make_api_request("OVERVIEW", params)
+    result = _make_api_request("OVERVIEW", params)
+    logger.debug("alpha vantage overview returned %d bytes for %s", len(result), ticker)
+    return result
 
 
 def get_balance_sheet(ticker: str, freq: str = "quarterly", curr_date: str = None):
     """Retrieve balance sheet data for a given ticker symbol using Alpha Vantage."""
+    logger.debug("get_balance_sheet called for %s freq=%s curr_date=%s", ticker, freq, curr_date)
     result = _make_api_request("BALANCE_SHEET", {"symbol": ticker})
+    logger.debug("alpha vantage balance sheet returned %d bytes for %s", len(result), ticker)
     return _filter_reports_by_date(result, curr_date)
 
 
 def get_cashflow(ticker: str, freq: str = "quarterly", curr_date: str = None):
     """Retrieve cash flow statement data for a given ticker symbol using Alpha Vantage."""
+    logger.debug("get_cashflow called for %s freq=%s curr_date=%s", ticker, freq, curr_date)
     result = _make_api_request("CASH_FLOW", {"symbol": ticker})
+    logger.debug("alpha vantage cash flow returned %d bytes for %s", len(result), ticker)
     return _filter_reports_by_date(result, curr_date)
 
 
 def get_income_statement(ticker: str, freq: str = "quarterly", curr_date: str = None):
     """Retrieve income statement data for a given ticker symbol using Alpha Vantage."""
+    logger.debug("get_income_statement called for %s freq=%s curr_date=%s", ticker, freq, curr_date)
     result = _make_api_request("INCOME_STATEMENT", {"symbol": ticker})
+    logger.debug("alpha vantage income statement returned %d bytes for %s", len(result), ticker)
     return _filter_reports_by_date(result, curr_date)
 

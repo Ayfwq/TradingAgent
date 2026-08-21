@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import Annotated
 
@@ -14,6 +15,8 @@ from .stockstats_utils import (
 )
 from .symbol_utils import NoMarketDataError, normalize_symbol
 
+logger = logging.getLogger(__name__)
+
 
 def get_YFin_data_online(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -21,6 +24,7 @@ def get_YFin_data_online(
     end_date: Annotated[str, "End date in yyyy-mm-dd format"],
 ):
 
+    logger.debug("get_YFin_data_online called for %s (%s to %s)", symbol, start_date, end_date)
     datetime.strptime(start_date, "%Y-%m-%d")
     end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
@@ -38,6 +42,10 @@ def get_YFin_data_online(
     # instead of returning prose: the routing layer turns it into a single
     # unambiguous "no data" signal so the agent never fabricates a price.
     if data.empty:
+        logger.warning(
+            "yfinance returned no rows for %s (canonical %s) between %s and %s",
+            symbol, canonical, start_date, end_date,
+        )
         raise NoMarketDataError(
             symbol, canonical, f"no rows between {start_date} and {end_date}"
         )
@@ -67,6 +75,7 @@ def get_YFin_data_online(
     header += f"# Total records: {len(data)}\n"
     header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
+    logger.debug("yfinance returned %d rows for %s", len(data), symbol)
     return header + csv_string
 
 def get_stock_stats_indicators_window(
@@ -77,6 +86,11 @@ def get_stock_stats_indicators_window(
     ],
     look_back_days: Annotated[int, "how many days to look back"],
 ) -> str:
+
+    logger.debug(
+        "get_stock_stats_indicators_window called for %s indicator=%s curr_date=%s look_back_days=%d",
+        symbol, indicator, curr_date, look_back_days,
+    )
 
     best_ind_params = {
         # Moving Averages
@@ -188,6 +202,7 @@ def get_stock_stats_indicators_window(
     except NoMarketDataError:
         raise  # Unknown/delisted symbol — let the router emit the sentinel
     except Exception as e:
+        logger.warning("bulk stockstats data failed for %s indicator=%s: %s", symbol, indicator, e)
         print(f"Error getting bulk stockstats data: {e}")
         # Fallback to original implementation if bulk method fails
         ind_string = ""
@@ -254,6 +269,7 @@ def get_stockstats_indicator(
     curr_date_dt = datetime.strptime(curr_date, "%Y-%m-%d")
     curr_date = curr_date_dt.strftime("%Y-%m-%d")
 
+    logger.debug("get_stockstats_indicator called for %s indicator=%s curr_date=%s", symbol, indicator, curr_date)
     try:
         indicator_value = StockstatsUtils.get_stock_stats(
             symbol,
@@ -263,6 +279,10 @@ def get_stockstats_indicator(
     except NoMarketDataError:
         raise  # Unknown/delisted symbol — let the router emit the sentinel
     except Exception as e:
+        logger.warning(
+            "stockstats indicator failed for %s indicator=%s on %s: %s",
+            symbol, indicator, curr_date, e,
+        )
         print(
             f"Error getting stockstats indicator data for indicator {indicator} on {curr_date}: {e}"
         )
@@ -325,16 +345,19 @@ def get_fundamentals(
         # "no usable fields" as no data rather than emitting a bare header the
         # agent might fabricate around.
         if not lines:
+            logger.warning("yfinance fundamentals returned no usable fields for %s (canonical %s)", ticker, canonical)
             raise NoMarketDataError(ticker, canonical, "no fundamental fields returned")
 
         header = f"# Company Fundamentals for {canonical}\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
+        logger.debug("yfinance fundamentals returned %d fields for %s", len(lines), canonical)
         return header + "\n".join(lines)
 
     except NoMarketDataError:
         raise
     except Exception as e:
+        logger.warning("fundamentals retrieval failed for %s: %s", ticker, e)
         return f"Error retrieving fundamentals for {ticker}: {str(e)}"
 
 
@@ -365,11 +388,13 @@ def get_balance_sheet(
         header = f"# Balance Sheet data for {canonical} ({freq})\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
+        logger.debug("yfinance balance sheet returned %d rows for %s", len(data), canonical)
         return header + csv_string
 
     except NoMarketDataError:
         raise
     except Exception as e:
+        logger.warning("balance sheet retrieval failed for %s: %s", ticker, e)
         return f"Error retrieving balance sheet for {ticker}: {str(e)}"
 
 
@@ -379,6 +404,7 @@ def get_cashflow(
     curr_date: Annotated[str, "current date in YYYY-MM-DD format"] = None
 ):
     """Get cash flow data from yfinance."""
+    logger.debug("get_cashflow called for %s freq=%s curr_date=%s", ticker, freq, curr_date)
     canonical = normalize_symbol(ticker)
     try:
         ticker_obj = yf.Ticker(canonical)
@@ -391,6 +417,7 @@ def get_cashflow(
         data = filter_financials_by_date(data, curr_date)
 
         if data.empty:
+            logger.warning("yfinance cash flow empty for %s (canonical %s)", ticker, canonical)
             raise NoMarketDataError(ticker, canonical, "no cash flow data")
 
         # Convert to CSV string for consistency with other functions
@@ -400,11 +427,13 @@ def get_cashflow(
         header = f"# Cash Flow data for {canonical} ({freq})\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
+        logger.debug("yfinance cash flow returned %d rows for %s", len(data), canonical)
         return header + csv_string
 
     except NoMarketDataError:
         raise
     except Exception as e:
+        logger.warning("cash flow retrieval failed for %s: %s", ticker, e)
         return f"Error retrieving cash flow for {ticker}: {str(e)}"
 
 
@@ -435,11 +464,13 @@ def get_income_statement(
         header = f"# Income Statement data for {canonical} ({freq})\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
+        logger.debug("yfinance income statement returned %d rows for %s", len(data), canonical)
         return header + csv_string
 
     except NoMarketDataError:
         raise
     except Exception as e:
+        logger.warning("income statement retrieval failed for %s: %s", ticker, e)
         return f"Error retrieving income statement for {ticker}: {str(e)}"
 
 
@@ -447,6 +478,7 @@ def get_insider_transactions(
     ticker: Annotated[str, "ticker symbol of the company"]
 ):
     """Get insider transactions data from yfinance."""
+    logger.debug("get_insider_transactions called for %s", ticker)
     canonical = normalize_symbol(ticker)
     try:
         ticker_obj = yf.Ticker(canonical)
@@ -455,6 +487,7 @@ def get_insider_transactions(
         # Empty is normal here (many valid symbols have no insider filings),
         # so report it plainly rather than treating the symbol as invalid.
         if data is None or data.empty:
+            logger.debug("no insider transactions for %s (canonical %s)", ticker, canonical)
             return f"No insider transactions reported for symbol '{canonical}'"
 
         # Convert to CSV string for consistency with other functions
@@ -464,7 +497,9 @@ def get_insider_transactions(
         header = f"# Insider Transactions data for {canonical}\n"
         header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
 
+        logger.debug("yfinance insider transactions returned %d rows for %s", len(data), canonical)
         return header + csv_string
 
     except Exception as e:
+        logger.warning("insider transactions retrieval failed for %s: %s", ticker, e)
         return f"Error retrieving insider transactions for {ticker}: {str(e)}"

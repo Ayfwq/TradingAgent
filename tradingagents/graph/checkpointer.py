@@ -6,6 +6,7 @@ Per-ticker SQLite databases so concurrent tickers don't contend.
 from __future__ import annotations
 
 import hashlib
+import logging
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -14,6 +15,8 @@ from pathlib import Path
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from tradingagents.dataflows.utils import safe_ticker_component
+
+logger = logging.getLogger(__name__)
 
 
 def _db_path(data_dir: str | Path, ticker: str) -> Path:
@@ -46,9 +49,11 @@ def get_checkpointer(data_dir: str | Path, ticker: str) -> Generator[SqliteSaver
     try:
         saver = SqliteSaver(conn)
         saver.setup()
+        logger.debug("Checkpointer opened for %s at %s", ticker, db)
         yield saver
     finally:
         conn.close()
+        logger.debug("Checkpointer closed for %s", ticker)
 
 
 def has_checkpoint(data_dir: str | Path, ticker: str, date: str, signature: str = "") -> bool:
@@ -60,14 +65,18 @@ def checkpoint_step(data_dir: str | Path, ticker: str, date: str, signature: str
     """Return the step number of the latest checkpoint, or None if none exists."""
     db = _db_path(data_dir, ticker)
     if not db.exists():
+        logger.debug("No checkpoint DB for %s at %s", ticker, db)
         return None
     tid = thread_id(ticker, date, signature)
     with get_checkpointer(data_dir, ticker) as saver:
         config = {"configurable": {"thread_id": tid}}
         cp = saver.get_tuple(config)
         if cp is None:
+            logger.debug("No checkpoint tuple for %s on %s (tid=%s)", ticker, date, tid)
             return None
-        return cp.metadata.get("step")
+        step = cp.metadata.get("step")
+        logger.info("Checkpoint found for %s on %s at step %s", ticker, date, step)
+        return step
 
 
 def clear_all_checkpoints(data_dir: str | Path) -> int:
@@ -78,6 +87,8 @@ def clear_all_checkpoints(data_dir: str | Path) -> int:
     dbs = list(cp_dir.glob("*.db"))
     for db in dbs:
         db.unlink()
+    if dbs:
+        logger.info("Cleared %d checkpoint DB(s) from %s", len(dbs), cp_dir)
     return len(dbs)
 
 
@@ -92,7 +103,8 @@ def clear_checkpoint(data_dir: str | Path, ticker: str, date: str, signature: st
         for table in ("writes", "checkpoints"):
             conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (tid,))
         conn.commit()
+        logger.info("Cleared checkpoint for %s on %s (tid=%s)", ticker, date, tid)
     except sqlite3.OperationalError:
-        pass
+        logger.warning("Failed to clear checkpoint for %s on %s", ticker, date)
     finally:
         conn.close()

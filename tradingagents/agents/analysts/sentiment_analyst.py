@@ -24,6 +24,7 @@ See: https://github.com/TauricResearch/TradingAgents/issues/557
 See: https://github.com/TauricResearch/TradingAgents/issues/796
 """
 
+import logging
 from datetime import datetime, timedelta
 
 from langchain_core.messages import AIMessage
@@ -42,6 +43,8 @@ from tradingagents.agents.utils.structured import (
 )
 from tradingagents.dataflows.reddit import fetch_reddit_posts
 from tradingagents.dataflows.stocktwits import fetch_stocktwits_messages
+
+logger = logging.getLogger(__name__)
 
 
 def _seven_days_back(trade_date: str) -> str:
@@ -63,6 +66,7 @@ def create_sentiment_analyst(llm):
         end_date = state["trade_date"]
         start_date = _seven_days_back(end_date)
         instrument_context = get_instrument_context_from_state(state)
+        logger.debug("Sentiment Analyst node invoked: ticker=%s date=%s", state.get("company_of_interest"), state.get("trade_date"))
 
         # Pre-fetch all three sources. Each fetcher degrades gracefully and
         # returns a string (no exceptions surface from here), so the LLM
@@ -111,13 +115,20 @@ def create_sentiment_analyst(llm):
         channel = state.get("sentiment_messages", state.get("messages", []))
         formatted_messages = prompt.format_messages(messages=channel)
 
-        report_text = invoke_structured_or_freetext(
-            structured_llm,
-            llm,
-            formatted_messages,
-            render_sentiment_report,
-            "Sentiment Analyst",
-        )
+        try:
+            report_text = invoke_structured_or_freetext(
+                structured_llm,
+                llm,
+                formatted_messages,
+                render_sentiment_report,
+                "Sentiment Analyst",
+            )
+            logger.debug("Sentiment Analyst LLM call completed")
+        except Exception as exc:
+            logger.exception("Sentiment Analyst LLM call failed: %s", exc)
+            raise
+
+        logger.debug("Sentiment Analyst finished: report=%d chars", len(report_text or ""))
 
         return {
             "sentiment_messages": [AIMessage(content=report_text)],
@@ -207,6 +218,7 @@ def create_social_media_analyst(llm):
     .. deprecated::
         Import :func:`create_sentiment_analyst` directly instead.
     """
+    logger.debug("Sentiment Analyst deprecated alias create_social_media_analyst invoked")
     import warnings
     warnings.warn(
         "create_social_media_analyst is deprecated and will be removed in a "

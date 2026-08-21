@@ -1,9 +1,12 @@
+import logging
 from typing import Any
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from .base_client import BaseLLMClient, normalize_content
 from .validators import validate_model
+
+logger = logging.getLogger(__name__)
 
 
 class NormalizedChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
@@ -25,6 +28,7 @@ class GoogleClient(BaseLLMClient):
 
     def get_llm(self) -> Any:
         """Return configured ChatGoogleGenerativeAI instance."""
+        logger.debug("Building Google LLM: provider=google model=%s base_url=%s", self.model, self.base_url)
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
@@ -50,8 +54,12 @@ class GoogleClient(BaseLLMClient):
                 thinking_level = "low"
             llm_kwargs["thinking_level"] = thinking_level
 
-        return NormalizedChatGoogleGenerativeAI(**llm_kwargs)
+        llm = NormalizedChatGoogleGenerativeAI(**llm_kwargs)
+        logger.debug("Constructed NormalizedChatGoogleGenerativeAI for model=%s", self.model)
+        return llm
 
     def validate_model(self) -> bool:
         """Validate model for Google."""
-        return validate_model("google", self.model)
+        result = validate_model("google", self.model)
+        logger.debug("Model '%s' validation for provider 'google': %s", self.model, result)
+        return result

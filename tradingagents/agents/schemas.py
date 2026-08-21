@@ -18,10 +18,13 @@ so that:
 
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+logger = logging.getLogger(__name__)
 
 # LLMs sometimes write a placeholder string ("None", "N/A", ...) into an optional
 # numeric field instead of omitting it. Coerce those to None so the structured
@@ -32,6 +35,7 @@ _NULLISH_FLOAT = {"", "none", "n/a", "na", "null", "nil", "-", "tbd", "unknown"}
 
 def _coerce_optional_float(value):
     if isinstance(value, str) and value.strip().lower() in _NULLISH_FLOAT:
+        logger.debug("_coerce_optional_float coerced nullish value %r to None", value)
         return None
     return value
 
@@ -104,13 +108,18 @@ class ResearchPlan(BaseModel):
 
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
-    return "\n".join([
+    logger.debug(
+        "render_research_plan called: recommendation=%s", plan.recommendation.value,
+    )
+    result = "\n".join([
         f"**Recommendation**: {plan.recommendation.value}",
         "",
         f"**Rationale**: {plan.rationale}",
         "",
         f"**Strategic Actions**: {plan.strategic_actions}",
     ])
+    logger.debug("render_research_plan produced %d chars", len(result))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +171,7 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
     preserved for backward compatibility with the analyst stop-signal text
     and any external code that greps for it.
     """
+    logger.debug("render_trader_proposal called: action=%s", proposal.action.value)
     parts = [
         f"**Action**: {proposal.action.value}",
         "",
@@ -177,7 +187,9 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
         "",
         f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
     ])
-    return "\n".join(parts)
+    result = "\n".join(parts)
+    logger.debug("render_trader_proposal produced %d chars", len(result))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +248,7 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     ``**Executive Summary**``, ``**Investment Thesis**``) that downstream
     parsers and the report writers already handle.
     """
+    logger.debug("render_pm_decision called: rating=%s", decision.rating.value)
     parts = [
         f"**Rating**: {decision.rating.value}",
         "",
@@ -247,7 +260,9 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
         parts.extend(["", f"**Price Target**: {decision.price_target}"])
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
-    return "\n".join(parts)
+    result = "\n".join(parts)
+    logger.debug("render_pm_decision produced %d chars", len(result))
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -332,10 +347,16 @@ def render_sentiment_report(report: SentimentReport) -> str:
     narrative so the saved report is both human-readable and machine-parseable
     without regex.
     """
-    return "\n".join([
+    logger.debug(
+        "render_sentiment_report called: band=%s, score=%s, confidence=%s",
+        report.overall_band.value, report.overall_score, report.confidence,
+    )
+    result = "\n".join([
         f"**Overall Sentiment:** **{report.overall_band.value}** "
         f"(Score: {report.overall_score:.1f}/10)",
         f"**Confidence:** {report.confidence.capitalize()}",
         "",
         report.narrative,
     ])
+    logger.debug("render_sentiment_report produced %d chars", len(result))
+    return result

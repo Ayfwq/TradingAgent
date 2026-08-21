@@ -1,8 +1,11 @@
+import logging
 from typing import Annotated
 
 from langchain_core.tools import tool
 
 from tradingagents.dataflows.interface import route_to_vendor
+
+logger = logging.getLogger(__name__)
 
 
 @tool
@@ -19,7 +22,14 @@ def get_fundamentals(
     Returns:
         str: A formatted report containing comprehensive fundamental data
     """
-    return route_to_vendor("get_fundamentals", ticker, curr_date)
+    logger.debug("get_fundamentals called: ticker=%s, curr_date=%s", ticker, curr_date)
+    try:
+        result = route_to_vendor("get_fundamentals", ticker, curr_date)
+        logger.debug("get_fundamentals returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception("get_fundamentals failed: ticker=%s, curr_date=%s", ticker, curr_date)
+        raise
 
 
 @tool
@@ -38,7 +48,20 @@ def get_balance_sheet(
     Returns:
         str: A formatted report containing balance sheet data
     """
-    return route_to_vendor("get_balance_sheet", ticker, freq, curr_date)
+    logger.debug(
+        "get_balance_sheet called: ticker=%s, freq=%s, curr_date=%s",
+        ticker, freq, curr_date,
+    )
+    try:
+        result = route_to_vendor("get_balance_sheet", ticker, freq, curr_date)
+        logger.debug("get_balance_sheet returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception(
+            "get_balance_sheet failed: ticker=%s, freq=%s, curr_date=%s",
+            ticker, freq, curr_date,
+        )
+        raise
 
 
 @tool
@@ -57,7 +80,20 @@ def get_cashflow(
     Returns:
         str: A formatted report containing cash flow statement data
     """
-    return route_to_vendor("get_cashflow", ticker, freq, curr_date)
+    logger.debug(
+        "get_cashflow called: ticker=%s, freq=%s, curr_date=%s",
+        ticker, freq, curr_date,
+    )
+    try:
+        result = route_to_vendor("get_cashflow", ticker, freq, curr_date)
+        logger.debug("get_cashflow returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception(
+            "get_cashflow failed: ticker=%s, freq=%s, curr_date=%s",
+            ticker, freq, curr_date,
+        )
+        raise
 
 
 @tool
@@ -76,4 +112,17 @@ def get_income_statement(
     Returns:
         str: A formatted report containing income statement data
     """
-    return route_to_vendor("get_income_statement", ticker, freq, curr_date)
+    logger.debug(
+        "get_income_statement called: ticker=%s, freq=%s, curr_date=%s",
+        ticker, freq, curr_date,
+    )
+    try:
+        result = route_to_vendor("get_income_statement", ticker, freq, curr_date)
+        logger.debug("get_income_statement returned %d chars for %s", len(result), ticker)
+        return result
+    except Exception:
+        logger.exception(
+            "get_income_statement failed: ticker=%s, freq=%s, curr_date=%s",
+            ticker, freq, curr_date,
+        )
+        raise

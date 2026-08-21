@@ -1,6 +1,9 @@
 # TradingAgents/graph/reflection.py
 
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class Reflector:
@@ -10,6 +13,7 @@ class Reflector:
         """Initialize the reflector with an LLM."""
         self.quick_thinking_llm = quick_thinking_llm
         self.log_reflection_prompt = self._get_log_reflection_prompt()
+        logger.debug("Reflector initialized")
 
     def _get_log_reflection_prompt(self) -> str:
         """Concise prompt for reflect_on_final_decision (Phase B log entries).
@@ -54,4 +58,14 @@ class Reflector:
                 ),
             ),
         ]
-        return self.quick_thinking_llm.invoke(messages).content
+        logger.debug(
+            "Reflecting on decision (raw=%+.1%%, alpha=%+.1%%, benchmark=%s)",
+            raw_return, alpha_return, benchmark_name,
+        )
+        try:
+            result = self.quick_thinking_llm.invoke(messages).content
+            logger.debug("Reflection generated (%d chars)", len(result or ""))
+            return result
+        except Exception as exc:
+            logger.warning("Reflection LLM call failed: %s", exc)
+            raise
