@@ -34,8 +34,8 @@ T = TypeVar("T", bound=BaseModel)
 # state the constraint explicitly rather than relying on the binding alone
 # (#1130).
 NO_EXTERNAL_TOOLS = (
-    "Use only the evidence provided in this prompt. Do not call external tools "
-    "or search the web; if something is missing, say so explicitly."
+    "只使用本提示词中提供的证据。不要调用外部工具或搜索网页；如果缺少信息，"
+    "请明确说明。所有自然语言字段必须使用简体中文。"
 )
 
 

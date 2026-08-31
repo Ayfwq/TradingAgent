@@ -24,5 +24,36 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # AI 资讯采集 Worker：与 web 服务共用同一镜像和数据卷，独立常驻进程。
+  news-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "web.news_worker"]
+    env_file:
+      - .env
+    volumes:
+      - tradingagents_data:/data
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-m", "web.news_worker", "--health"]
+      interval: 60s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+
 volumes:
   tradingagents_data:

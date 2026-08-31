@@ -790,6 +790,27 @@ wheels = [
 ]
 
 [[package]]
+name = "feedparser"
+version = "6.0.14"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+dependencies = [
+    { name = "feedparser-sgmllib" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/37/8a/a53da4a77352045d277978a2df322d5379369f9deb1707178899ff7e1121/feedparser-6.0.14.tar.gz", hash = "sha256:088679b0c4b543ee211a820dd544698c76a402122eae7473c04a43425f283d06" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/7f/61/f04912e63702e73fb2a378f9c0a1ad9eb17a334a11a6b3fe1daa593903c2/feedparser-6.0.14-py3-none-any.whl", hash = "sha256:e35e3f760151b0c3b22cac9684155cae186a233e16c49bcbc6c49e91e3131137" },
+]
+
+[[package]]
+name = "feedparser-sgmllib"
+version = "2.1.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/da/df/38596299216e5c22d60ed7f97902bb2bc72cfb95f732400f4fa976fd2e62/feedparser_sgmllib-2.1.0.tar.gz", hash = "sha256:61facf2918c4389b5b00714f76c5e03431ffcd94cd1f51d657edd6cd7c396579" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/85/a0/79a31f898092e145bd66e2b338fb0656979acb2bbbcae8220940fbfcd820/feedparser_sgmllib-2.1.0-py3-none-any.whl", hash = "sha256:2cab2d43b95a954f920f18aebce7a4dbbb3f539780b127e2aa114f579821e01d" },
+]
+
+[[package]]
 name = "filetype"
 version = "1.2.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -3401,6 +3422,7 @@ dependencies = [
     { name = "akshare", version = "1.18.91", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.11'" },
     { name = "backtrader" },
     { name = "fastapi" },
+    { name = "feedparser" },
     { name = "langchain-anthropic" },
     { name = "langchain-core" },
     { name = "langchain-experimental" },
@@ -3441,6 +3463,7 @@ requires-dist = [
     { name = "akshare", specifier = ">=1.18.88" },
     { name = "backtrader", specifier = ">=1.9.78.123" },
     { name = "fastapi", specifier = ">=0.116.0" },
+    { name = "feedparser", specifier = ">=6.0.14" },
     { name = "langchain-anthropic", specifier = ">=0.3.15" },
     { name = "langchain-aws", marker = "extra == 'bedrock'", specifier = ">=1.5.0" },
     { name = "langchain-core", specifier = ">=0.3.81" },

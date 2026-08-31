@@ -34,10 +34,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     TRADINGAGENTS_RESULTS_DIR=/data/logs \
     TRADINGAGENTS_CACHE_DIR=/data/cache \
     TRADINGAGENTS_MEMORY_LOG_PATH=/data/memory/trading_memory.md \
-    TRADINGAGENTS_MODEL_SETTINGS_DIR=/data/settings
+    TRADINGAGENTS_MODEL_SETTINGS_DIR=/data/settings \
+    NEWS_DATABASE_PATH=/data/news/news.db
 
 RUN useradd --create-home --uid 10001 appuser \
-    && install -d -m 0755 -o appuser -g appuser /app /data
+    && install -d -m 0755 -o appuser -g appuser /app /data /data/news
 
 WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /app /app

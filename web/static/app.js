@@ -4,6 +4,9 @@ const processPanel = document.querySelector('#process');
 const reportPanel = document.querySelector('#report');
 const stages = [...document.querySelectorAll('.stage')];
 const submitButton = form.querySelector('button[type="submit"]');
+const historyCenter = document.querySelector('#history-center');
+const historyState = document.querySelector('#history-state');
+const historyList = document.querySelector('#history-list');
 const locatorPanel = document.querySelector('#locator-panel');
 const locatorForm = document.querySelector('#locator-form');
 const locatorState = document.querySelector('#locator-state');
@@ -11,6 +14,66 @@ const locatorResults = document.querySelector('#locator-results');
 let pollTimer = null;
 let stageTimer = null;
 let currentStage = 0;
+
+function reportDateLabel(item) {
+  const generated = item.generated_at ? item.generated_at.replace('T', ' ').slice(0, 19) : '时间未知';
+  return `分析日期 ${item.trade_date || '未知'} · 生成于 ${generated}`;
+}
+
+function renderHistory(items) {
+  if (!items.length) {
+    historyList.innerHTML = '<div class="history-empty"><strong>还没有找到历史研报</strong><p>完成一次分析后，完整报告会自动保存到这里。</p></div>';
+    return;
+  }
+  historyList.innerHTML = items.map((item) => `
+    <button class="history-card" type="button" data-report-id="${escapeHtml(item.id)}">
+      <div><span class="history-ticker">${escapeHtml(item.ticker)}</span><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(reportDateLabel(item))}</p></div>
+      <span class="history-open">查看完整报告 →</span>
+    </button>
+  `).join('');
+  historyList.querySelectorAll('[data-report-id]').forEach((button) => {
+    button.addEventListener('click', () => openHistoricalReport(button.dataset.reportId));
+  });
+}
+
+async function loadHistory() {
+  historyState.textContent = '正在读取历史研报…';
+  try {
+    const params = new URLSearchParams();
+    const query = document.querySelector('#history-query').value.trim();
+    const start = document.querySelector('#history-start').value;
+    const end = document.querySelector('#history-end').value;
+    if (query) params.set('query', query);
+    if (start) params.set('start_date', start);
+    if (end) params.set('end_date', end);
+    const response = await fetch(`/api/reports?${params.toString()}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error('无法读取历史研报');
+    const data = await response.json();
+    historyState.textContent = data.total ? `共找到 ${data.total} 份研报` : '没有符合条件的研报';
+    renderHistory(data.reports || []);
+  } catch (error) {
+    historyState.textContent = error.message;
+    historyList.innerHTML = '';
+  }
+}
+
+async function openHistoricalReport(reportId) {
+  try {
+    const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error('历史报告不存在或已损坏');
+    const historical = await response.json();
+    showReport({ ...historical, status: 'completed', phase: '历史报告' });
+  } catch (error) {
+    historyState.textContent = error.message;
+  }
+}
+
+document.querySelector('#history-trigger').addEventListener('click', () => {
+  historyCenter.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  loadHistory();
+});
+document.querySelector('#history-refresh').addEventListener('click', loadHistory);
+document.querySelector('#history-search').addEventListener('click', loadHistory);
 
 const today = new Date();
 const localToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -432,3 +495,11 @@ document.querySelector('#new-analysis').addEventListener('click', () => {
   document.querySelector('#hero').scrollIntoView({ behavior: 'smooth' });
   document.querySelector('#ticker').focus();
 });
+
+document.querySelector('#back-to-history').addEventListener('click', () => {
+  reportPanel.classList.add('hidden');
+  historyCenter.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  loadHistory();
+});
+
+loadHistory();

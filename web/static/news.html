@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="TradingAgents AI 资讯日报：按日期回溯 AI 行业热点" />
+    <title>TradingAgents · AI 资讯日报</title>
+    <link rel="stylesheet" href="/static/styles.css?v=workspace-1" />
+    <link rel="stylesheet" href="/static/news.css?v=7" />
+  </head>
+  <body>
+    <div class="ambient ambient-one"></div>
+    <div class="ambient ambient-two"></div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="TradingAgents 股票分析">
+        <span class="brand-mark">T</span>
+        <span>TradingAgents</span>
+      </a>
+      <div class="topbar-actions">
+        <a class="history-trigger nav-link active" href="/">股票分析</a>
+        <span class="status-pill" id="news-status-pill"><i></i> 采集器待检测</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="news-hero">
+        <div class="eyebrow">DAILY INTELLIGENCE</div>
+        <h1>AI 资讯日报<span> · 按日期回溯热点</span></h1>
+        <p class="news-hero-copy">每天一份清晰的 AI 行业情报。选择准确日期，阅读当日完整时间线；打开“近期精选”，快速浏览最近最值得关注的内容。</p>
+        <div class="news-hero-stats" aria-label="资讯状态">
+          <div><strong id="news-day-count">—</strong><span>可回溯日期</span></div>
+          <div><strong id="news-item-count">—</strong><span>已收录资讯</span></div>
+          <div><strong id="news-last-update">—</strong><span>最近更新</span></div>
+        </div>
+      </section>
+
+      <section class="news-board" aria-label="AI 资讯日报">
+        <div class="news-board-header">
+          <div>
+            <span class="eyebrow">NEWS DESK</span>
+            <h2>每日情报中心</h2>
+            <p>按日期保存，不错过，也方便回看。</p>
+          </div>
+          <div class="news-view-tabs" role="tablist" aria-label="资讯视图">
+            <button class="news-view-tab active" id="view-digest-btn" type="button" role="tab" aria-selected="true">日报</button>
+            <button class="news-view-tab" id="view-featured-btn" type="button" role="tab" aria-selected="false">近期精选</button>
+          </div>
+        </div>
+
+        <div id="digest-view" class="news-view-panel">
+          <div class="digest-layout">
+            <aside class="digest-archive" aria-label="日报日期索引">
+              <div class="digest-archive-head">
+                <span>DATE ARCHIVE</span>
+                <strong>日期索引</strong>
+              </div>
+              <p>选择某一天，查看该日完整资讯。</p>
+              <div class="digest-day-bar" id="digest-day-bar" role="tablist" aria-label="日报日期选择"></div>
+            </aside>
+
+            <section class="digest-content" aria-live="polite">
+              <div class="news-filter-row digest-filter-row">
+                <label class="news-filter-field">
+                  <span>分类筛选</span>
+                  <select id="digest-category-select" aria-label="日报分类"></select>
+                </label>
+                <label class="news-filter-field news-filter-search">
+                  <span>当天搜索</span>
+                  <input id="digest-search-input" type="search" maxlength="100" placeholder="搜索当天标题、公司或技术…" autocomplete="off" />
+                </label>
+              </div>
+              <div id="digest-body">
+                <div class="news-loading"><span></span><p>正在读取日报…</p></div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div id="featured-view" class="news-view-panel hidden" aria-live="polite">
+          <div class="featured-heading">
+            <div>
+              <span class="eyebrow">EDITOR'S PICKS</span>
+              <h3>近期精选</h3>
+              <p>从最近收录的资讯中，按热度、来源覆盖和新鲜度挑出值得先看的内容。</p>
+            </div>
+            <span class="news-module-meta" id="featured-meta"></span>
+          </div>
+          <div class="news-filter-row">
+            <label class="news-filter-field">
+              <span>分类</span>
+              <select id="featured-category-select" aria-label="精选分类"></select>
+            </label>
+            <label class="news-filter-field news-filter-search">
+              <span>搜索</span>
+              <input id="featured-search-input" type="search" maxlength="100" placeholder="搜索标题、公司或技术…" autocomplete="off" />
+            </label>
+          </div>
+          <div class="featured-list" id="featured-list"></div>
+        </div>
+      </section>
+
+      <section class="news-sources hidden" id="news-sources-panel" aria-label="数据源状态">
+        <div class="news-sources-heading">
+          <div>
+            <span class="eyebrow">SOURCE STATUS</span>
+            <h2>数据源状态</h2>
+            <p>单个来源出现波动时，不会影响其他日报内容。</p>
+          </div>
+          <button class="ghost-button" id="news-sources-close" type="button">收起</button>
+        </div>
+        <div class="news-sources-grid" id="news-sources-grid"></div>
+      </section>
+
+      <div class="news-sources-entry">
+        <button class="ghost-button" id="news-sources-toggle" type="button">查看数据源状态</button>
+      </div>
+    </main>
+
+    <footer>TradingAgents · Multi-Agent Financial Research Framework · AI 资讯日报</footer>
+    <script src="/static/news.js?v=7" defer></script>
+  </body>
+</html>

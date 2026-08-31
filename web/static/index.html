@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="TradingAgents 多智能体 AI 股票研报" />
     <title>TradingAgents · AI 股票研报</title>
-    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/styles.css?v=workspace-1" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -16,12 +16,38 @@
         <span>TradingAgents</span>
       </a>
       <div class="topbar-actions">
+        <button class="history-trigger nav-link" id="news-tab-trigger" type="button" aria-pressed="false">AI 资讯日报</button>
+        <button class="history-trigger" id="history-trigger" type="button">历史研报</button>
         <button class="model-settings-trigger" id="model-settings-trigger" type="button">模型配置</button>
         <span class="status-pill"><i></i> AI 研究引擎在线</span>
       </div>
     </header>
 
     <main>
+      <section class="module-hub" id="module-hub" aria-label="选择工作模块">
+        <div class="module-hub-heading">
+          <span class="eyebrow">TRADINGAGENTS WORKSPACE</span>
+          <h2>选择你的研究工作台</h2>
+          <p>一个入口，两个模块：深入研究一只股票，或快速回溯每天的 AI 行业热点。</p>
+        </div>
+        <div class="module-hub-grid">
+          <a class="module-hub-card module-hub-card-primary" href="#analysis-form">
+            <span class="module-hub-index">01 · RESEARCH</span>
+            <span class="module-hub-icon">↗</span>
+            <strong>股票分析</strong>
+            <p>让多智能体并行分析技术、基本面、新闻和风险，形成一份可读的投资研究报告。</p>
+            <span class="module-hub-action">进入股票分析 <b>→</b></span>
+          </a>
+          <a class="module-hub-card module-hub-card-news" href="/news">
+            <span class="module-hub-index">02 · DAILY INTELLIGENCE</span>
+            <span class="module-hub-icon">✦</span>
+            <strong>AI 资讯日报</strong>
+            <p>按准确日期整理 AI 行业新闻，快速查看当日热点、精选内容与原文出处。</p>
+            <span class="module-hub-action">进入 AI 资讯日报 <b>→</b></span>
+          </a>
+        </div>
+      </section>
+
       <section class="hero" id="hero">
         <div class="eyebrow">MULTI-AGENT EQUITY RESEARCH</div>
         <h1>把复杂的市场信息，<br /><span>整理成一份可读的研报。</span></h1>
@@ -128,6 +154,25 @@
         </section>
       </section>
 
+      <section class="history-center" id="history-center" aria-label="历史研报中心">
+        <div class="history-header">
+          <div>
+            <span class="eyebrow">REPORT ARCHIVE</span>
+            <h2>历史研报</h2>
+            <p>按股票代码、关键词和分析日期快速定位过去生成的完整研报。</p>
+          </div>
+          <button class="ghost-button" id="history-refresh" type="button">刷新列表</button>
+        </div>
+        <div class="history-filters">
+          <label><span>搜索公司或代码</span><input id="history-query" placeholder="例如：NVDA、贵州茅台" /></label>
+          <label><span>开始日期</span><input id="history-start" type="date" /></label>
+          <label><span>结束日期</span><input id="history-end" type="date" /></label>
+          <button class="secondary-button" id="history-search" type="button">查找报告</button>
+        </div>
+        <div class="history-state" id="history-state">正在读取历史研报…</div>
+        <div class="history-list" id="history-list"></div>
+      </section>
+
       <section class="process-card hidden" id="process" aria-live="polite">
         <div class="process-copy">
           <span class="process-kicker">ANALYSIS IN PROGRESS</span>
@@ -159,7 +204,10 @@
             <h2><span id="report-ticker">—</span> 投资研究报告</h2>
             <p id="report-date"></p>
           </div>
-          <button class="ghost-button" id="new-analysis">重新分析</button>
+          <div class="report-actions">
+            <button class="ghost-button" id="back-to-history">历史研报</button>
+            <button class="ghost-button" id="new-analysis">重新分析</button>
+          </div>
         </div>
 
         <div class="decision-grid">
@@ -180,9 +228,12 @@
         </div>
         <div class="disclaimer">本报告由 AI 基于可用数据自动生成，仅用于研究与信息参考，不构成任何投资建议。市场有风险，决策需谨慎。</div>
       </section>
+
+      <section id="news-module-root" class="hidden" aria-label="AI 资讯模块"></section>
     </main>
 
     <footer>TradingAgents · Multi-Agent Financial Research Framework</footer>
-    <script src="/static/app.js" defer></script>
+    <script src="/static/app.js?v=history-center-2" defer></script>
+    <script src="/static/news_loader.js?v=3" defer></script>
   </body>
 </html>

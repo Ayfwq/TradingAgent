@@ -7,6 +7,7 @@ run produces the same on-disk report tree a CLI run does.
 """
 
 import logging
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -104,6 +105,15 @@ def write_report_tree(final_state: dict, ticker: str, save_path) -> Path:
         header = f"# Trading Analysis Report: {ticker}\n\nGenerated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         complete_report = save_path / "complete_report.md"
         complete_report.write_text(header + "\n\n".join(sections), encoding="utf-8")
+        metadata = {
+            "ticker": ticker,
+            "trade_date": str(final_state.get("trade_date", ""))[:10],
+            "asset_type": final_state.get("asset_type", "stock"),
+            "generated_at": datetime.now().isoformat(sep=" "),
+        }
+        (save_path / "metadata.json").write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         logger.info(
             "Report tree saved to %s; complete report %s (%d bytes)",
             save_path, complete_report.name, complete_report.stat().st_size,

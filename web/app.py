@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
@@ -20,6 +20,8 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from web.instrument_search import instrument_search_service
 from web.model_profiles import MODEL_TEMPLATES, model_profile_service
+from web.news.api import router as news_router
+from web.report_history import get_report, list_reports
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +106,7 @@ app = FastAPI(
     redoc_url=None,
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.include_router(news_router)
 
 _records: dict[str, AnalysisRecord] = {}
 _records_lock = threading.Lock()
@@ -183,8 +186,10 @@ def _run_analysis(payload: AnalysisRequest) -> dict:
         payload.trade_date.isoformat(),
         asset_type=payload.asset_type,
     )
-    graph.save_reports(final_state, payload.ticker)
-    return _present_result(final_state, decision)
+    report_path = graph.save_reports(final_state, payload.ticker)
+    result = _present_result(final_state, decision)
+    result["report_id"] = report_path.parent.name
+    return result
 
 
 async def _execute(task_id: str, payload: AnalysisRequest) -> None:
@@ -250,6 +255,32 @@ async def search_instruments(payload: InstrumentSearchRequest) -> dict:
 async def get_model_templates() -> dict:
     logger.debug("Model templates requested: %d template(s)", len(MODEL_TEMPLATES))
     return {"templates": MODEL_TEMPLATES}
+
+
+@app.get("/api/reports")
+async def reports(
+    query: str = Query(default="", max_length=100),
+    ticker: str = Query(default="", max_length=24),
+    start_date: str = Query(default="", max_length=10),
+    end_date: str = Query(default="", max_length=10),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict:
+    return await asyncio.to_thread(
+        list_reports,
+        query=query,
+        ticker=ticker,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+    )
+
+
+@app.get("/api/reports/{report_id}")
+async def report_detail(report_id: str) -> dict:
+    result = await asyncio.to_thread(get_report, report_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="历史报告不存在或已损坏")
+    return result
 
 
 @app.get("/api/model-profiles")

@@ -64,7 +64,9 @@ logger = logging.getLogger(__name__)
 def get_language_instruction() -> str:
     """Return a prompt instruction for the configured output language.
 
-    Returns empty string when English (default), so no extra tokens are used.
+    Returns an explicit instruction when a non-English output language is
+    configured.  The instruction covers reports, reasoning, tool-call text,
+    and intermediate agent messages so a localized run does not mix languages.
     Applied to every agent whose output reaches the saved report —
     analysts, researchers, debaters, research manager, trader, and
     portfolio manager — so a non-English run produces a fully localized
@@ -78,10 +80,11 @@ def get_language_instruction() -> str:
         # Richer than the generic directive: anchors A-share terminology so a
         # Chinese report reads like a native research note, not a translation.
         return (
-            " Write your entire response in Chinese (简体中文), using standard "
-            "Chinese financial terminology: 买入/增持/持有/减持/卖出 for ratings, "
-            "市盈率/市净率/净资产收益率 for valuation, 止损/目标价/仓位 for risk, "
-            "北向资金/龙虎榜/涨停板/业绩预告 for A-share market concepts."
+            " 请将所有回复、分析过程、研究员之间的讨论、工具调用中的自然语言参数、"
+            "日志摘要和最终报告全部使用简体中文；股票代码、公司英文名、数据源名称、"
+            "JSON 键名和 Markdown 语法可以保留原样。使用标准中文金融术语："
+            "买入/增持/持有/减持/卖出，市盈率/市净率/净资产收益率，止损/目标价/仓位，"
+            "以及北向资金/龙虎榜/涨停板/业绩预告。不要因为数据源标题是英文就改用英文。"
         )
     return f" Write your entire response in {lang}."
 

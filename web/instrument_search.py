@@ -107,8 +107,14 @@ class InstrumentSearchService:
                 matches = self._directory_search(term, market)
                 ranked.extend(self._rank(query, matches, "ai", term, index))
 
+        # Keep this invariant at the final boundary as well as in the Sina
+        # parser.  It protects against future directory formats and against
+        # an AI expansion path accidentally contributing a cross-market row.
         results = [
-            item for item in self._deduplicate_and_sort(ranked) if item.match_score >= 45
+            item
+            for item in self._deduplicate_and_sort(ranked)
+            if item.match_score >= 45
+            and (market == "auto" or item.market_code == market)
         ][:limit]
         if results:
             status = "matched"
