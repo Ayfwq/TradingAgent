@@ -33,6 +33,18 @@ def _entry_datetime(entry) -> datetime | None:
                     return datetime.fromtimestamp(calendar.timegm(parsed), tz=timezone.utc)
             except (OverflowError, ValueError, OSError):
                 continue
+    # 部分国内政府 RSS（如工信部）使用毫秒 Unix 时间戳作为 pubDate。
+    for key in ("published", "updated"):
+        raw = getattr(entry, key, None)
+        if not isinstance(raw, str) or not raw.strip().isdigit():
+            continue
+        try:
+            timestamp = int(raw.strip())
+            if timestamp > 10_000_000_000:
+                timestamp /= 1000
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        except (OverflowError, ValueError, OSError):
+            continue
     return None
 
 
@@ -111,6 +123,11 @@ class FeedSource(SourceAdapter):
                     language=self.config.language,
                 )
             )
-        # Feed 顺序通常为新条目在前；截断避免个别源一次返回全量历史
+        # 先按发布时间排序再截断；某些政府 RSS 会返回全量且原始顺序不稳定。
+        outcome.entries.sort(
+            key=lambda item: item.published_at
+            or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
         outcome.entries = outcome.entries[: self.settings.max_entries_per_fetch]
         return outcome

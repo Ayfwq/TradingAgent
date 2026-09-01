@@ -16,7 +16,7 @@ import logging
 import sys
 import time
 
-from web.news.config import ALL_SOURCES, NewsSettings, sources_for_settings
+from web.news.config import NewsSettings, all_sources_enabled, sources_for_settings
 from web.news.repository import NewsRepository
 from web.news.scheduler import NewsScheduler
 
@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     scheduler = NewsScheduler(
         settings,
         repo,
-        sources=ALL_SOURCES if args.all_sources else sources_for_settings(settings),
+        sources=all_sources_enabled() if args.all_sources else sources_for_settings(settings),
     )
 
     if args.health:

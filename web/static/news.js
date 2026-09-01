@@ -265,7 +265,7 @@
     if (featured.length && !state.digestQuery) {
       var featuredSection = document.createElement("section");
       featuredSection.className = "digest-featured-section";
-      var featuredTitle = sectionTitle("★", "当日精选", "按来源覆盖与热度选出");
+      var featuredTitle = sectionTitle("★", "当日精选", "A股相关的国内政策、产业链与上市公司资讯优先");
       featuredSection.appendChild(featuredTitle);
       var featuredGrid = document.createElement("div");
       featuredGrid.className = "digest-featured-grid";
@@ -347,6 +347,19 @@
     source.className = "news-card-source";
     source.textContent = item.source_name || "未知来源";
     meta.appendChild(source);
+    if (item.region === "cn") {
+      var region = document.createElement("span");
+      region.className = "news-card-region";
+      region.textContent = "国内来源";
+      meta.appendChild(region);
+    }
+    if (item.authority_label) {
+      var authority = document.createElement("span");
+      authority.className = "news-card-authority authority-" + (item.source_type || "specialist");
+      authority.textContent = item.authority_label;
+      authority.title = "来源类型，不代替对具体事实的交叉核对";
+      meta.appendChild(authority);
+    }
     if (item.source_count > 1) {
       var coverage = document.createElement("span");
       coverage.className = "news-card-coverage";
@@ -424,8 +437,11 @@
     els.featuredList.appendChild(loading);
     return fetchJson("/api/news?limit=80").then(function (payload) {
       state.featuredItems = (payload.items || []).sort(function (a, b) {
-        return (b.importance_score || 0) - (a.importance_score || 0)
+        return Number((b.source_count || 0) > 1) - Number((a.source_count || 0) > 1)
+          || (b.a_share_relevance || 0) - (a.a_share_relevance || 0)
+          || (b.authority_score || 0) - (a.authority_score || 0)
           || (b.source_count || 0) - (a.source_count || 0)
+          || (b.importance_score || 0) - (a.importance_score || 0)
           || new Date(b.published_at) - new Date(a.published_at);
       });
       renderFeatured();
@@ -436,8 +452,15 @@
 
   function renderFeatured() {
     els.featuredList.textContent = "";
-    var visible = state.featuredItems.filter(function (item) {
+    var filtered = state.featuredItems.filter(function (item) {
       return matches(item, state.featuredCategory, state.featuredQuery);
+    });
+    var counts = {};
+    var visible = filtered.filter(function (item) {
+      var sourceId = item.source_id || "unknown";
+      if ((counts[sourceId] || 0) >= 3) return false;
+      counts[sourceId] = (counts[sourceId] || 0) + 1;
+      return true;
     }).slice(0, 18);
     setText("featured-meta", visible.length ? "精选 " + visible.length + " 条" : "暂无精选");
     if (!visible.length) {
@@ -505,7 +528,9 @@
       card.appendChild(head);
       var details = document.createElement("p");
       details.className = "source-card-details";
-      details.textContent = source.last_duration_ms != null ? "最近耗时 " + source.last_duration_ms + " ms" : "尚未运行";
+      details.textContent = (source.region_label ? source.region_label + " · " : "")
+        + (source.authority_label ? source.authority_label + " · " : "")
+        + (source.last_duration_ms != null ? "最近耗时 " + source.last_duration_ms + " ms" : "尚未运行");
       card.appendChild(details);
       if (source.last_error) {
         var error = document.createElement("p");

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from web.news.config import source_authority_score
 from web.news.models import FetchRunStats, NewsItem, SourceHealth, utc_now
 
 _SCHEMA = """
@@ -96,6 +97,16 @@ def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
 
+def _source_filter_sql(source_ids: list[str] | None, leading: str = "AND") -> tuple[str, list[str]]:
+    """生成启用来源过滤片段；None 表示不过滤，空列表表示无可见条目。"""
+    if source_ids is None:
+        return "", []
+    if not source_ids:
+        return f"{leading} 0", []
+    placeholders = ",".join("?" for _ in source_ids)
+    return f"{leading} source_id IN ({placeholders})", list(source_ids)
+
+
 class NewsRepository:
     """线程安全的 SQLite 存取层。"""
 
@@ -142,7 +153,9 @@ class NewsRepository:
     # 来源健康
     # ------------------------------------------------------------------
 
-    def upsert_source(self, source_id: str, name: str, url: str, enabled: bool, interval_minutes: int | None) -> None:
+    def upsert_source(
+        self, source_id: str, name: str, url: str, enabled: bool, interval_minutes: int | None
+    ) -> None:
         with self._lock:
             self._conn.execute(
                 "INSERT INTO news_sources(source_id, name, url, enabled, interval_minutes, updated_at) "
@@ -186,8 +199,16 @@ class NewsRepository:
                 "UPDATE news_sources SET last_attempt_at=?, last_success_at=?, last_duration_ms=?, "
                 "consecutive_failures=0, last_error=NULL, etag=?, last_modified=?, "
                 "last_items_count=?, updated_at=? WHERE source_id=?",
-                (_iso(utc_now()), _iso(utc_now()), duration_ms, etag, last_modified,
-                 items_count, _iso(utc_now()), source_id),
+                (
+                    _iso(utc_now()),
+                    _iso(utc_now()),
+                    duration_ms,
+                    etag,
+                    last_modified,
+                    items_count,
+                    _iso(utc_now()),
+                    source_id,
+                ),
             )
             self._conn.commit()
 
@@ -203,9 +224,7 @@ class NewsRepository:
 
     def list_source_health(self) -> list[SourceHealth]:
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT * FROM news_sources ORDER BY source_id"
-            ).fetchall()
+            rows = self._conn.execute("SELECT * FROM news_sources ORDER BY source_id").fetchall()
         return [
             SourceHealth(
                 source_id=row["source_id"],
@@ -249,9 +268,7 @@ class NewsRepository:
 
     def latest_run(self) -> dict | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM fetch_runs ORDER BY id DESC LIMIT 1"
-            ).fetchone()
+            row = self._conn.execute("SELECT * FROM fetch_runs ORDER BY id DESC LIMIT 1").fetchone()
         return dict(row) if row else None
 
     # ------------------------------------------------------------------
@@ -267,24 +284,83 @@ class NewsRepository:
                     "title_hash, content_hash, importance_score, summary_status, source_count, "
                     "duplicate_of_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
-                        item.source_id, item.source_name, item.title, item.summary,
-                        item.original_summary, item.url, item.canonical_url,
-                        _iso(item.published_at), _iso(item.fetched_at), item.category,
-                        json.dumps(item.tags, ensure_ascii=False), item.language,
-                        item.title_hash, item.content_hash, item.importance_score,
-                        item.summary_status, item.source_count, item.duplicate_of_id,
+                        item.source_id,
+                        item.source_name,
+                        item.title,
+                        item.summary,
+                        item.original_summary,
+                        item.url,
+                        item.canonical_url,
+                        _iso(item.published_at),
+                        _iso(item.fetched_at),
+                        item.category,
+                        json.dumps(item.tags, ensure_ascii=False),
+                        item.language,
+                        item.title_hash,
+                        item.content_hash,
+                        item.importance_score,
+                        item.summary_status,
+                        item.source_count,
+                        item.duplicate_of_id,
                         _iso(utc_now()),
                     ),
                 )
-                self._conn.commit()
             except sqlite3.IntegrityError:
                 # canonical_url 已存在：第一级去重命中
+                existing = self._conn.execute(
+                    "SELECT id, source_id, source_count FROM news_items WHERE canonical_url=?",
+                    (item.canonical_url,),
+                ).fetchone()
+                if existing:
+                    # 同一原文被多个 Feed 引用时，对外保留更权威的来源归属。
+                    fields = "source_count=source_count"
+                    values: list = []
+                    if source_authority_score(item.source_id) > source_authority_score(
+                        existing["source_id"]
+                    ):
+                        fields += ", source_id=?, source_name=?, title=?, summary=?, original_summary=?, url=?"
+                        values.extend(
+                            [
+                                item.source_id,
+                                item.source_name,
+                                item.title,
+                                item.summary,
+                                item.original_summary,
+                                item.url,
+                            ]
+                        )
+                    values.append(existing["id"])
+                    self._conn.execute(f"UPDATE news_items SET {fields} WHERE id=?", values)
+                    self._conn.commit()
+                    return InsertResult(item_id=int(existing["id"]), is_new=False)
+                self._conn.rollback()
                 return InsertResult(item_id=0, is_new=False)
             new_id = int(cursor.lastrowid)
-        # 第二级去重：同标题指纹 + 时间窗接近 -> 合并事件
-        primary_id = self._find_title_primary(item, exclude_id=new_id)
-        if primary_id:
-            with self._lock:
+            # 第二级去重：同标题指纹 + 时间窗接近 -> 合并事件。
+            primary_id = self._find_title_primary(item, exclude_id=new_id)
+            if primary_id:
+                primary = self._conn.execute(
+                    "SELECT source_id, source_count FROM news_items WHERE id=?",
+                    (primary_id,),
+                ).fetchone()
+                if primary and source_authority_score(item.source_id) > source_authority_score(
+                    primary["source_id"]
+                ):
+                    # 后到的官方/权威稿升格为主条目，所有旧副本改指新主条目。
+                    self._conn.execute(
+                        "UPDATE news_items SET duplicate_of_id=? WHERE duplicate_of_id=?",
+                        (new_id, primary_id),
+                    )
+                    self._conn.execute(
+                        "UPDATE news_items SET duplicate_of_id=? WHERE id=?",
+                        (new_id, primary_id),
+                    )
+                    self._conn.execute(
+                        "UPDATE news_items SET duplicate_of_id=NULL, source_count=? WHERE id=?",
+                        (int(primary["source_count"]) + 1, new_id),
+                    )
+                    self._conn.commit()
+                    return InsertResult(item_id=new_id, is_new=True, merged_into_id=new_id)
                 self._conn.execute(
                     "UPDATE news_items SET duplicate_of_id=? WHERE id=?", (primary_id, new_id)
                 )
@@ -292,8 +368,9 @@ class NewsRepository:
                     "UPDATE news_items SET source_count=source_count+1 WHERE id=?", (primary_id,)
                 )
                 self._conn.commit()
-            return InsertResult(item_id=new_id, is_new=True, merged_into_id=primary_id)
-        return InsertResult(item_id=new_id, is_new=True)
+                return InsertResult(item_id=new_id, is_new=True, merged_into_id=primary_id)
+            self._conn.commit()
+            return InsertResult(item_id=new_id, is_new=True)
 
     def _find_title_primary(self, item: NewsItem, exclude_id: int) -> int | None:
         window = timedelta(hours=72)
@@ -314,9 +391,7 @@ class NewsRepository:
 
     def get_item(self, item_id: int) -> NewsItem | None:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT * FROM news_items WHERE id=?", (item_id,)
-            ).fetchone()
+            row = self._conn.execute("SELECT * FROM news_items WHERE id=?", (item_id,)).fetchone()
         return self._row_to_item(row) if row else None
 
     def update_item(self, item_id: int, **fields) -> None:
@@ -366,6 +441,7 @@ class NewsRepository:
         cursor: str | None = None,
         limit: int = 30,
         include_duplicates: bool = False,
+        source_ids: list[str] | None = None,
     ) -> tuple[list[NewsItem], str | None]:
         clauses = []
         params: list = []
@@ -377,6 +453,12 @@ class NewsRepository:
         if source:
             clauses.append("source_id=?")
             params.append(source)
+        if source_ids is not None:
+            if not source_ids:
+                return [], None
+            placeholders = ",".join("?" for _ in source_ids)
+            clauses.append(f"source_id IN ({placeholders})")
+            params.extend(source_ids)
         if query:
             clauses.append("(title LIKE ? OR summary LIKE ?)")
             like = f"%{query}%"
@@ -392,27 +474,25 @@ class NewsRepository:
             clauses.append("(published_at<? OR (published_at=? AND id<?))")
             params.extend([cursor_published, cursor_published, cursor_id])
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        sql = (
-            "SELECT * FROM news_items "
-            f"{where} ORDER BY published_at DESC, id DESC LIMIT ?"
-        )
+        sql = f"SELECT * FROM news_items {where} ORDER BY published_at DESC, id DESC LIMIT ?"
         with self._lock:
             rows = self._conn.execute(sql, params + [limit + 1]).fetchall()
         has_more = len(rows) > limit
         rows = rows[:limit]
         items = [self._row_to_item(row) for row in rows]
         next_cursor = (
-            _encode_cursor(rows[-1]["published_at"], rows[-1]["id"])
-            if has_more and rows
-            else None
+            _encode_cursor(rows[-1]["published_at"], rows[-1]["id"]) if has_more and rows else None
         )
         return items, next_cursor
 
-    def category_stats(self) -> list[dict]:
+    def category_stats(self, source_ids: list[str] | None = None) -> list[dict]:
+        source_clause, source_params = _source_filter_sql(source_ids)
         with self._lock:
             rows = self._conn.execute(
                 "SELECT category, COUNT(*) AS count, MAX(published_at) AS latest "
-                "FROM news_items WHERE duplicate_of_id IS NULL GROUP BY category"
+                "FROM news_items WHERE duplicate_of_id IS NULL "
+                f"{source_clause} GROUP BY category",
+                source_params,
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -420,14 +500,15 @@ class NewsRepository:
     # 日报：按北京时间日期统计与查询
     # ------------------------------------------------------------------
 
-    def day_stats(self, limit: int = 30) -> list[dict]:
+    def day_stats(self, limit: int = 30, source_ids: list[str] | None = None) -> list[dict]:
         """近 N 个有数据的天（北京时间）：day / count / 当日热度 top 标题。"""
+        source_clause, source_params = _source_filter_sql(source_ids)
         with self._lock:
             rows = self._conn.execute(
                 "SELECT date(published_at, '+8 hours') AS day, COUNT(*) AS count "
                 "FROM news_items WHERE duplicate_of_id IS NULL "
-                "GROUP BY day ORDER BY day DESC LIMIT ?",
-                (limit,),
+                f"{source_clause} GROUP BY day ORDER BY day DESC LIMIT ?",
+                source_params + [limit],
             ).fetchall()
             days = [dict(row) for row in rows]
             for entry in days:
@@ -435,39 +516,62 @@ class NewsRepository:
                     "SELECT title FROM news_items "
                     "WHERE duplicate_of_id IS NULL "
                     "AND date(published_at, '+8 hours') = ? "
+                    f"{source_clause} "
                     "ORDER BY importance_score DESC, source_count DESC LIMIT 1",
-                    (entry["day"],),
+                    [entry["day"]] + source_params,
                 ).fetchone()
                 entry["top_title"] = top["title"] if top else None
         return days
 
-    def list_day_items(self, day: str) -> list[NewsItem]:
+    def list_day_items(self, day: str, source_ids: list[str] | None = None) -> list[NewsItem]:
         """某北京时间日期（YYYY-MM-DD）的全部可见条目，按分类+时间排序。"""
         try:
             start = datetime.fromisoformat(day + "T00:00:00+08:00")
         except ValueError:
             raise ValueError("日期格式应为 YYYY-MM-DD") from None
         end = start + timedelta(days=1)
+        source_clause, source_params = _source_filter_sql(source_ids)
         with self._lock:
             rows = self._conn.execute(
                 "SELECT * FROM news_items "
                 "WHERE duplicate_of_id IS NULL "
                 "AND published_at >= ? AND published_at < ? "
+                f"{source_clause} "
                 "ORDER BY category, published_at DESC, id DESC",
-                (_iso(start.astimezone(timezone.utc)), _iso(end.astimezone(timezone.utc))),
+                [
+                    _iso(start.astimezone(timezone.utc)),
+                    _iso(end.astimezone(timezone.utc)),
+                ]
+                + source_params,
             ).fetchall()
         return [self._row_to_item(row) for row in rows]
 
-    def count_items(self, include_duplicates: bool = True) -> int:
-        where = "" if include_duplicates else " WHERE duplicate_of_id IS NULL"
-        with self._lock:
-            row = self._conn.execute(f"SELECT COUNT(*) AS c FROM news_items{where}").fetchone()
-        return int(row["c"])
-
-    def latest_item_time(self) -> str | None:
+    def count_items(
+        self,
+        include_duplicates: bool = True,
+        source_ids: list[str] | None = None,
+    ) -> int:
+        clauses = [] if include_duplicates else ["duplicate_of_id IS NULL"]
+        params: list = []
+        if source_ids is not None:
+            if not source_ids:
+                return 0
+            placeholders = ",".join("?" for _ in source_ids)
+            clauses.append(f"source_id IN ({placeholders})")
+            params.extend(source_ids)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._lock:
             row = self._conn.execute(
-                "SELECT MAX(fetched_at) AS latest FROM news_items"
+                f"SELECT COUNT(*) AS c FROM news_items{where}", params
+            ).fetchone()
+        return int(row["c"])
+
+    def latest_item_time(self, source_ids: list[str] | None = None) -> str | None:
+        source_clause, source_params = _source_filter_sql(source_ids, leading="WHERE")
+        with self._lock:
+            row = self._conn.execute(
+                f"SELECT MAX(fetched_at) AS latest FROM news_items {source_clause}",
+                source_params,
             ).fetchone()
         return row["latest"] if row else None
 

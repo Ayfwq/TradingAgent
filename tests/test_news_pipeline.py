@@ -6,7 +6,12 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from web.news.config import NewsSettings, SourceConfig
+from web.news.config import (
+    NewsSettings,
+    SourceConfig,
+    source_metadata,
+    sources_for_settings,
+)
 from web.news.models import RawEntry, utc_now
 from web.news.pipeline import (
     AISummarizer,
@@ -34,7 +39,7 @@ def _entry(title="OpenAI 发布新模型", url="https://example.com/x", summary=
 
 class TestNormalization:
     def test_clean_html_strips_script_and_style(self):
-        dirty = '前<script>alert(1)</script>文<style>.x{}</style>正文 <b>加粗</b> 结尾'
+        dirty = "前<script>alert(1)</script>文<style>.x{}</style>正文 <b>加粗</b> 结尾"
         assert "script" not in clean_html(dirty)
         assert "alert" not in clean_html(dirty)
         assert "加粗" in clean_html(dirty)
@@ -74,6 +79,55 @@ class TestRelevanceFilter:
 
     def test_general_source_keyword_in_summary(self):
         assert is_relevant(GENERAL, "某公司消息", "涉及 GPU 供应链") is True
+
+    def test_short_english_keyword_uses_word_boundaries(self):
+        assert is_relevant(GENERAL, "Thailand trade delegation", "ordinary news") is False
+        assert is_relevant(GENERAL, "Company launches AI platform", "") is True
+
+    def test_a_share_ai_supply_chain_keywords(self):
+        assert is_relevant(GENERAL, "人形机器人产业指南征求意见", "") is True
+        assert is_relevant(GENERAL, "中际旭创公告", "光模块产能扩张") is True
+
+
+class TestSourceAuthorityPolicy:
+    def test_ithome_is_not_enabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("NEWS_SOURCES", raising=False)
+        source_ids = {source.source_id for source in sources_for_settings(NewsSettings())}
+        assert "ithome" not in source_ids
+        assert {
+            "openai",
+            "nature_ml",
+            "mit_tech_review_ai",
+            "miit_news",
+            "miit_policy",
+            "cls_finance",
+            "eastmoney_finance",
+            "chinanews_finance",
+        } <= source_ids
+        domestic = [
+            source
+            for source in sources_for_settings(NewsSettings())
+            if source.region == "cn"
+        ]
+        assert len(domestic) >= 8
+
+    def test_aggregator_can_only_be_explicitly_enabled(self, monkeypatch):
+        monkeypatch.setenv("NEWS_SOURCES", "openai,ithome")
+        source_ids = [source.source_id for source in sources_for_settings(NewsSettings())]
+        assert source_ids == ["openai", "ithome"]
+        assert all(source.enabled for source in sources_for_settings(NewsSettings()))
+
+    def test_authority_metadata_distinguishes_primary_and_aggregator(self):
+        official = source_metadata("openai")
+        aggregator = source_metadata("ithome")
+        assert official["authority_label"] == "官方一手"
+        assert official["authority_score"] > aggregator["authority_score"]
+
+    def test_domestic_sources_have_a_share_priority(self):
+        miit = source_metadata("miit_news")
+        overseas = source_metadata("openai")
+        assert miit["region_label"] == "国内来源"
+        assert miit["a_share_relevance"] > overseas["a_share_relevance"]
 
 
 class TestClassification:
@@ -141,7 +195,9 @@ class TestBuildItem:
         assert item.title_hash
 
     def test_irrelevant_entry_from_general_source_filtered(self):
-        entry = RawEntry(title="新款手机壳上市", url="https://example.com/y", published_at=utc_now())
+        entry = RawEntry(
+            title="新款手机壳上市", url="https://example.com/y", published_at=utc_now()
+        )
         item, disposition = build_item(GENERAL, entry, None, [0])
         assert item is None
         assert disposition == "filtered"
@@ -169,7 +225,9 @@ class TestBuildItem:
 
 class TestAISummarizer:
     def _summarizer(self, ai_enabled=True):
-        return AISummarizer(NewsSettings(ai_summary_enabled=ai_enabled, ai_request_timeout_seconds=5))
+        return AISummarizer(
+            NewsSettings(ai_summary_enabled=ai_enabled, ai_request_timeout_seconds=5)
+        )
 
     def test_disabled_returns_none(self):
         assert self._summarizer(ai_enabled=False).summarize("t", "s") is None
@@ -182,7 +240,9 @@ class TestAISummarizer:
         assert "OpenAI" in result["tags"]
 
     def test_fenced_payload_accepted(self):
-        content = '```json\n{"summary": "' + "很长的摘要" * 10 + '", "category": "company_capital"}\n```'
+        content = (
+            '```json\n{"summary": "' + "很长的摘要" * 10 + '", "category": "company_capital"}\n```'
+        )
         result = _validate_ai_payload(content, "t", "s")
         assert result is not None
         assert result["category"] == "company_capital"
@@ -194,14 +254,20 @@ class TestAISummarizer:
         assert _validate_ai_payload('{"summary": "太短", "category": "other"}', "t", "s") is None
 
     def test_bad_category_reclassified(self):
-        content = '{"summary": "' + "合规且长度足够的中文摘要内容" * 3 + '", "category": "不存在的分类", "tags": "not-a-list"}'
+        content = (
+            '{"summary": "'
+            + "合规且长度足够的中文摘要内容" * 3
+            + '", "category": "不存在的分类", "tags": "not-a-list"}'
+        )
         result = _validate_ai_payload(content, "t", "s")
         assert result["category"] == "other"
         assert result["tags"] == []
 
     def test_invoke_exception_returns_none(self):
         summarizer = self._summarizer()
-        summarizer._llm = SimpleNamespace(invoke=lambda prompt: (_ for _ in ()).throw(RuntimeError("boom")))
+        summarizer._llm = SimpleNamespace(
+            invoke=lambda prompt: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
         assert summarizer.summarize("t", "s") is None
 
     def test_timeout_returns_none(self):
@@ -234,7 +300,9 @@ class TestAISummarizer:
 
         def counting_invoke(prompt):
             calls.append(prompt)
-            return SimpleNamespace(content='{"summary": "预算用尽测试摘要" * 5 + "。", "category": "other"}')
+            return SimpleNamespace(
+                content='{"summary": "预算用尽测试摘要" * 5 + "。", "category": "other"}'
+            )
 
         summarizer._llm = SimpleNamespace(invoke=counting_invoke)
         build_item(VERTICAL, _entry(), summarizer, [0])
@@ -258,7 +326,11 @@ class TestPersistItem:
         repo = NewsRepository(tmp_path / "news.db")
         try:
             entry1 = RawEntry(title="大模型融资事件", url="https://a.com/1", published_at=utc_now())
-            entry2 = RawEntry(title="大模型融资事件", url="https://b.com/2", published_at=utc_now() + timedelta(minutes=10))
+            entry2 = RawEntry(
+                title="大模型融资事件",
+                url="https://b.com/2",
+                published_at=utc_now() + timedelta(minutes=10),
+            )
             source = SourceConfig("qbitai", "量子位", "https://www.qbitai.com/feed", vertical=True)
             item1, _ = build_item(source, entry1, None, [0])
             item2, _ = build_item(source, entry2, None, [0])

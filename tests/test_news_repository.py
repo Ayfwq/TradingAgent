@@ -84,8 +84,10 @@ class TestInsertAndDedup:
         )
         second = repo.insert_item(
             make_item(
-                source_id="techcrunch_ai", source_name="TechCrunch AI",
-                title="NVIDIA 发布新 GPU！", url="https://b.com/2",
+                source_id="hackernews",
+                source_name="Hacker News",
+                title="NVIDIA 发布新 GPU！",
+                url="https://b.com/2",
                 published_at=published + timedelta(hours=1),
             )
         )
@@ -98,9 +100,48 @@ class TestInsertAndDedup:
         assert len(items) == 1
         assert items[0].id == first.item_id
 
+    def test_higher_authority_duplicate_becomes_primary(self, repo):
+        published = utc_now()
+        low = repo.insert_item(
+            make_item(
+                source_id="ithome",
+                source_name="IT之家",
+                title="OpenAI 发布新模型",
+                url="https://ithome.example/1",
+                published_at=published,
+            )
+        )
+        official = repo.insert_item(
+            make_item(
+                source_id="openai",
+                source_name="OpenAI",
+                title="OpenAI 发布新模型！",
+                url="https://openai.example/1",
+                published_at=published + timedelta(minutes=20),
+            )
+        )
+
+        assert official.merged_into_id == official.item_id
+        items, _ = repo.list_items()
+        assert len(items) == 1
+        assert items[0].id == official.item_id
+        assert items[0].source_id == "openai"
+        assert items[0].source_count == 2
+        assert repo.get_item(low.item_id).duplicate_of_id == official.item_id
+
+    def test_higher_authority_wins_for_same_canonical_url(self, repo):
+        url = "https://official.example/announcement"
+        first = repo.insert_item(make_item(source_id="ithome", source_name="IT之家", url=url))
+        second = repo.insert_item(make_item(source_id="openai", source_name="OpenAI", url=url))
+
+        assert not second.is_new
+        assert repo.get_item(first.item_id).source_id == "openai"
+
     def test_title_outside_window_not_merged(self, repo):
         published = utc_now()
-        repo.insert_item(make_item(title="同标题旧闻", url="https://a.com/1", published_at=published))
+        repo.insert_item(
+            make_item(title="同标题旧闻", url="https://a.com/1", published_at=published)
+        )
         second = repo.insert_item(
             make_item(
                 title="同标题旧闻",
@@ -120,8 +161,10 @@ class TestInsertAndDedup:
         before = repo.get_item(first.item_id).importance_score
         repo.insert_item(
             make_item(
-                source_id="infoq", source_name="InfoQ",
-                title="芯片出口新规", url="https://b.com/2",
+                source_id="hackernews",
+                source_name="Hacker News",
+                title="芯片出口新规",
+                url="https://b.com/2",
                 published_at=published + timedelta(minutes=30),
             )
         )
@@ -171,6 +214,11 @@ class TestQueries:
     def test_source_filter(self, filled_repo):
         items, _ = filled_repo.list_items(source="ithome")
         assert items and all(item.source_id == "ithome" for item in items)
+
+    def test_enabled_source_allowlist_hides_disabled_history(self, filled_repo):
+        items, _ = filled_repo.list_items(source_ids=["qbitai"])
+        assert items and all(item.source_id == "qbitai" for item in items)
+        assert filled_repo.count_items(source_ids=["qbitai"]) == len(items)
 
     def test_query_filter(self, filled_repo):
         items, _ = filled_repo.list_items(query="AI 新闻 3")
@@ -232,12 +280,11 @@ class TestSourceHealthAndRuns:
 class TestPrune:
     def test_old_items_deleted(self, repo):
         old = make_item(
-            title="旧新闻", url="https://example.com/old",
+            title="旧新闻",
+            url="https://example.com/old",
             fetched_at=utc_now() - timedelta(days=30),
         )
-        fresh = make_item(
-            title="新新闻", url="https://example.com/fresh", fetched_at=utc_now()
-        )
+        fresh = make_item(title="新新闻", url="https://example.com/fresh", fetched_at=utc_now())
         repo.insert_item(old)
         repo.insert_item(fresh)
         deleted = repo.prune(retention_days=7)

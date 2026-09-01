@@ -73,6 +73,13 @@ class TestDigestApi:
         # 精选应按 (source_count, importance) 降序
         keys = [(i["source_count"], i["importance_score"]) for i in featured]
         assert keys == sorted(keys, reverse=True)
+        assert (
+            max(
+                sum(1 for item in featured if item["source_id"] == source_id)
+                for source_id in {item["source_id"] for item in featured}
+            )
+            <= 2
+        )
 
     def test_digest_bad_date_rejected(self):
         assert client.get("/api/news/digest", params={"date": "2026/08/29"}).status_code == 400
@@ -86,10 +93,17 @@ class TestDigestApi:
         assert payload["by_category"] == {}
 
 
-def _insert(title, url, category="model_tech", published_offset_hours=0, tags=None):
+def _insert(
+    title,
+    url,
+    category="model_tech",
+    published_offset_hours=0,
+    tags=None,
+    source=SOURCE,
+):
     repo = get_news_repository()
     item, _ = build_item(
-        SOURCE,
+        source,
         RawEntry(
             title=title,
             url=url,
@@ -113,6 +127,16 @@ def seed_data():
     _insert("某公司完成融资", "https://example.com/3", "company_capital", 2)
     _insert("网信办新政策发布", "https://example.com/4", "policy_security", 3)
     _insert("开源工具上线", "https://example.com/5", "product_open_source", 4)
+    _insert(
+        "IT之家 AI 聚合稿",
+        "https://example.com/ithome-hidden",
+        source=SourceConfig(
+            "ithome",
+            "IT之家",
+            "https://www.ithome.com/rss/",
+            vertical=False,
+        ),
+    )
     yield
 
 
@@ -141,6 +165,10 @@ class TestListApi:
         assert first["title"] == "OpenAI 发布 GPT-5.5"
         assert first["category_label"] == "模型与技术"
         assert first["source_name"] == "量子位"
+        assert first["authority_label"] == "专业媒体"
+        assert first["authority_score"] > 0
+        assert first["region_label"] == "国内来源"
+        assert first["a_share_relevance"] > 0
         assert first["url"].startswith("https://")
         assert first["published_at"]
 
@@ -148,6 +176,10 @@ class TestListApi:
         items = client.get("/api/news").json()["items"]
         times = [item["published_at"] for item in items]
         assert times == sorted(times, reverse=True)
+
+    def test_disabled_aggregator_history_is_hidden(self):
+        payload = client.get("/api/news", params={"source": "ithome"}).json()
+        assert payload["items"] == []
 
     def test_category_filter(self):
         payload = client.get("/api/news", params={"category": "chips_compute"}).json()
@@ -252,7 +284,8 @@ def _stub_adapter_factory(outcomes, errors):
         if config.source_id in errors:
             return StubAdapter(config, settings, error=errors[config.source_id])
         return StubAdapter(
-            config, settings,
+            config,
+            settings,
             outcome=FetchOutcome(
                 entries=[
                     RawEntry(
@@ -264,6 +297,7 @@ def _stub_adapter_factory(outcomes, errors):
                 ]
             ),
         )
+
     return factory
 
 
@@ -281,7 +315,9 @@ class TestScheduler:
         )
         repo = NewsRepository(settings.database_path)
         scheduler = NewsScheduler(
-            settings, repo, sources=sources,
+            settings,
+            repo,
+            sources=sources,
             adapter_factory=_stub_adapter_factory(None, errors or {}),
             summarizer=None,
         )
@@ -351,7 +387,9 @@ class TestScheduler:
         repo = NewsRepository(settings.database_path)
         sources = [SourceConfig("flaky", "抖动源", "https://flaky.example/feed", vertical=True)]
         scheduler = NewsScheduler(
-            settings, repo, sources=sources,
+            settings,
+            repo,
+            sources=sources,
             adapter_factory=lambda config, s: FlakyAdapter(config, s),
             summarizer=None,
         )
@@ -371,7 +409,9 @@ class TestScheduler:
         repo = NewsRepository(settings.database_path)
         sources = [SourceConfig("nm", "条件源", "https://nm.example/feed", vertical=True)]
         scheduler = NewsScheduler(
-            settings, repo, sources=sources,
+            settings,
+            repo,
+            sources=sources,
             adapter_factory=lambda config, s: StubAdapter(
                 config, s, outcome=FetchOutcome(not_modified=True)
             ),
@@ -412,7 +452,8 @@ class TestScheduler:
 
         def factory(config, s):
             return StubAdapter(
-                config, s,
+                config,
+                s,
                 outcome=FetchOutcome(entries=[entries[config.source_id]]),
             )
 
@@ -421,7 +462,11 @@ class TestScheduler:
             SourceConfig("ithome", "IT之家", "https://www.ithome.com/rss/", vertical=False),
         ]
         scheduler = NewsScheduler(
-            settings, repo, sources=sources, adapter_factory=factory, summarizer=None,
+            settings,
+            repo,
+            sources=sources,
+            adapter_factory=factory,
+            summarizer=None,
         )
         try:
             scheduler.run_once()

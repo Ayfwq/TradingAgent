@@ -90,7 +90,17 @@ def is_relevant(source: SourceConfig, title: str, summary: str) -> bool:
     if source.vertical:
         return True
     text = f"{title} {summary}".lower()
-    return any(keyword.lower() in text for keyword in RELEVANCE_KEYWORDS)
+    return any(_contains_keyword(text, keyword) for keyword in RELEVANCE_KEYWORDS)
+
+
+def _contains_keyword(lowered_text: str, keyword: str) -> bool:
+    """英文缩写按单词边界匹配，避免 AI 误命中 Thailand / training 等普通单词。"""
+    lowered = keyword.lower()
+    if lowered.isascii() and re.fullmatch(r"[a-z0-9.+-]+", lowered):
+        return re.search(
+            rf"(?<![a-z0-9]){re.escape(lowered)}(?![a-z0-9])", lowered_text
+        ) is not None
+    return lowered in lowered_text
 
 
 def classify(title: str, summary: str) -> str:

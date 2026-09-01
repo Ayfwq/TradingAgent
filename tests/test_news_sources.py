@@ -14,6 +14,7 @@ from web.news.sources.base import (
     http_get_safe,
     validate_external_url,
 )
+from web.news.sources.china_finance import CLSFinanceSource, EastMoneyFinanceSource
 from web.news.sources.feed import FeedSource
 from web.news.sources.hacker_news import HackerNewsSource
 
@@ -216,6 +217,12 @@ RSS_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
   </item>
 </channel></rss>"""
 
+MILLISECOND_RSS_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <item><title>工信部人形机器人政策</title><link>https://example.com/new</link><pubDate>1788254280000</pubDate></item>
+  <item><title>旧闻</title><link>https://example.com/old</link><pubDate>1753101405039</pubDate></item>
+</channel></rss>"""
+
 ATOM_SAMPLE = """<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>Atom Sample</title>
@@ -252,6 +259,13 @@ class TestFeedSource:
         outcome = _feed_source().fetch(session=session, resolver=PUBLIC_RESOLVER)
         assert len(outcome.entries) == 1
         assert outcome.entries[0].url == "https://example.com/nvidia-gpu"
+
+    def test_millisecond_timestamp_is_parsed_and_sorted(self):
+        session = StubSession([StubResponse(200, {}, MILLISECOND_RSS_SAMPLE.encode())])
+        outcome = _feed_source().fetch(session=session, resolver=PUBLIC_RESOLVER)
+        assert outcome.entries[0].title == "工信部人形机器人政策"
+        assert outcome.entries[0].published_at is not None
+        assert outcome.entries[0].published_at > outcome.entries[1].published_at
 
     def test_malformed_xml_raises(self):
         session = StubSession([StubResponse(200, {}, b"<broken><rss")])
@@ -319,6 +333,92 @@ class TestHackerNewsSource:
         session = StubSession([StubResponse(200, {}, b"not json")])
         with pytest.raises(SourceError, match="JSON"):
             source.fetch(session=session, resolver=PUBLIC_RESOLVER)
+
+
+class TestChinaFinanceSources:
+    def test_cls_finance_parsing(self):
+        payload = json.dumps(
+            {
+                "data": {
+                    "roll_data": [
+                        {
+                            "id": 12345,
+                            "title": "科大讯飞发布 AI 新模型",
+                            "content": "财联社电报摘要",
+                            "ctime": 1788254280,
+                        }
+                    ]
+                }
+            }
+        ).encode()
+        source = CLSFinanceSource(
+            SourceConfig(
+                "cls_finance",
+                "财联社·A股电报",
+                "https://www.cls.cn/v1/roll/get_roll_list",
+                kind="cls_finance",
+                language="zh",
+                vertical=False,
+            ),
+            _settings(max_entries_per_fetch=20),
+        )
+        outcome = source.fetch(
+            session=StubSession([StubResponse(200, {}, payload)]),
+            resolver=PUBLIC_RESOLVER,
+        )
+        assert len(outcome.entries) == 1
+        assert outcome.entries[0].url == "https://www.cls.cn/detail/12345"
+        assert outcome.entries[0].published_at is not None
+
+    def test_eastmoney_finance_parsing(self):
+        payload = json.dumps(
+            {
+                "data": {
+                    "fastNewsList": [
+                        {
+                            "title": "寒武纪算力芯片新进展",
+                            "summary": "上市公司公告摘要",
+                            "showTime": "2026-09-01 17:13:24",
+                            "code": "202609013861538763",
+                        }
+                    ]
+                }
+            }
+        ).encode()
+        source = EastMoneyFinanceSource(
+            SourceConfig(
+                "eastmoney_finance",
+                "东方财富·7×24",
+                "https://np-weblist.eastmoney.com/comm/web/getFastNewsList",
+                kind="eastmoney_finance",
+                language="zh",
+                vertical=False,
+            ),
+            _settings(max_entries_per_fetch=20),
+        )
+        outcome = source.fetch(
+            session=StubSession([StubResponse(200, {}, payload)]),
+            resolver=PUBLIC_RESOLVER,
+        )
+        assert len(outcome.entries) == 1
+        assert outcome.entries[0].url.endswith("202609013861538763.html")
+        assert outcome.entries[0].published_at is not None
+
+    def test_invalid_json_raises(self):
+        source = CLSFinanceSource(
+            SourceConfig(
+                "cls_finance",
+                "财联社",
+                "https://www.cls.cn/v1/roll/get_roll_list",
+                kind="cls_finance",
+            ),
+            _settings(),
+        )
+        with pytest.raises(SourceError, match="JSON"):
+            source.fetch(
+                session=StubSession([StubResponse(200, {}, b"not-json")]),
+                resolver=PUBLIC_RESOLVER,
+            )
 
 
 class TestRawEntryDefaults:

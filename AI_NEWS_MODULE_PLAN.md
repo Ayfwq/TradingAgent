@@ -63,28 +63,40 @@
 
 ### 4.1 核心来源
 
-2026-08-30 已从当前开发环境进行只读 HTTPS 请求测试。以下来源均返回结构化数据，并实际包含标题、发布时间和原文链接。
+2026-09-01 已从当前开发环境重新进行只读 HTTPS 请求测试。鉴于项目用于 A 股分析，默认来源改为“国内官方政策 + A 股主流财经媒体 + 国内 AI 专业媒体”为主，海外官方/权威源用于补充全球产业链，综合聚合源不默认启用。
 
 | 来源 | 地址 | 实测状态 | 首版角色 |
 |---|---|---:|---|
-| 量子位 | `https://www.qbitai.com/feed` | HTTP 200 | 中文 AI 核心源 |
-| IT之家 | `https://www.ithome.com/rss/` | HTTP 200 | 中文科技源，需关键词过滤 |
-| InfoQ 中文 | `https://www.infoq.cn/feed` | HTTP 200 | 中文 AI/企业技术源 |
+| 工业和信息化部·工信动态 | 官方 RSS API | HTTP 200 | AI、机器人、智能制造及信息产业政策 |
+| 工业和信息化部·征求意见 | 官方 RSS API | HTTP 200 | 人形机器人、脑机接口等产业标准前瞻信号 |
+| 财联社·A股电报 | `https://www.cls.cn/v1/roll/get_roll_list` | HTTP 200 | A 股公司、产业链和快讯 |
+| 东方财富·7×24 | `https://np-weblist.eastmoney.com/comm/web/getFastNewsList` | HTTP 200 | 上市公司公告摘要与盘中资讯 |
+| 中国新闻网·财经/即时 | `https://www.chinanews.com.cn/rss/finance.xml` | HTTP 200 | 中央媒体财经与产业新闻 |
+| InfoQ 中文 | `https://www.infoq.cn/feed` | HTTP 200 | 中文专业媒体 |
+| 量子位 | `https://www.qbitai.com/feed` | HTTP 200 | 中文 AI 专业媒体 |
 | OpenAI | `https://openai.com/news/rss.xml` | HTTP 200 | 官方模型与产品源 |
 | Google AI | `https://blog.google/technology/ai/rss/` | HTTP 200 | 官方 AI 产品源 |
 | Google DeepMind | `https://deepmind.google/blog/rss.xml` | HTTP 200 | 官方研究与模型源 |
 | Hugging Face | `https://huggingface.co/blog/feed.xml` | HTTP 200 | 开源模型与生态源 |
 | NVIDIA | `https://developer.nvidia.com/blog/category/generative-ai/feed/` | HTTP 200 | 芯片、算力和开发源 |
 | TechCrunch AI | `https://techcrunch.com/category/artificial-intelligence/feed/` | HTTP 200 | 公司、产品和资本媒体源 |
+| Google Research | `https://research.google/blog/rss/` | HTTP 200 | 官方研究源 |
+| Microsoft 官方博客 | `https://blogs.microsoft.com/feed/` | HTTP 200 | 官方发布，需 AI 关键词过滤 |
+| Microsoft Research | `https://www.microsoft.com/en-us/research/feed/` | HTTP 200 | 官方研究源，需 AI 关键词过滤 |
+| AWS Machine Learning | `https://aws.amazon.com/blogs/machine-learning/feed/` | HTTP 200 | 官方机器学习源 |
+| Nature · Machine Learning | `https://www.nature.com/subjects/machine-learning.rss` | HTTP 200 | 学术期刊来源 |
+| MIT Technology Review · AI | `https://www.technologyreview.com/topic/artificial-intelligence/feed/` | HTTP 200 | 权威科技媒体 |
+| BBC Technology | `https://feeds.bbci.co.uk/news/technology/rss.xml` | HTTP 200 | 权威新闻媒体，需 AI 关键词过滤 |
+| The Guardian · AI | `https://www.theguardian.com/technology/artificialintelligenceai/rss` | HTTP 200 | 主流新闻媒体 |
 
 ### 4.2 备用/发现来源
 
 | 来源 | 地址 | 用途 |
 |---|---|---|
+| IT之家 | `https://www.ithome.com/rss/` | 综合聚合备用源；默认禁用 |
 | 开源中国 | `https://www.oschina.net/news/rss` | 中文开源资讯备用源 |
 | VentureBeat AI | `https://venturebeat.com/category/ai/feed` | 海外行业媒体备用源 |
 | Hacker News Algolia | `https://hn.algolia.com/api/v1/search_by_date` | 热点发现；默认降低权重 |
-| Microsoft 主站 | `https://blogs.microsoft.com/feed/` | 官方备用源；内容较泛 |
 
 ### 4.3 暂不采用
 
@@ -506,4 +518,3 @@ NEWS_DATABASE_PATH=/data/news/news.db
 - 阿里云 ECS 部署与排障说明；
 - 数据库备份和恢复说明；
 - 来源增删及关键词维护说明。
-
