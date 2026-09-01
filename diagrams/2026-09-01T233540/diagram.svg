@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1220" viewBox="0 0 1800 1220">
+  <rect x="0" y="0" width="1800" height="1220" rx="42" fill="#07111f"/>
+
+  <text x="90" y="92" fill="#f4f8ff" font-size="42" font-weight="700">TradingAgents · LangGraph 多 Agent 协同全景</text>
+  <text x="92" y="132" fill="#94a9c7" font-size="20">并行分析 → 多空辩论 → 交易提案 → 风险辩论 → 组合决策；状态、工具、记忆与恢复贯穿全程</text>
+
+  <rect x="76" y="186" width="245" height="142" rx="40" fill="#12304e" stroke="#4aa8ff" stroke-width="3"/>
+  <circle cx="124" cy="231" r="22" fill="#4aa8ff"/>
+  <path d="M114 231 L121 238 L136 221" fill="none" stroke="#07111f" stroke-width="5" stroke-linecap="round"/>
+  <text x="160" y="238" fill="#f7fbff" font-size="25" font-weight="700">运行入口</text>
+  <text x="104" y="278" fill="#bed5ed" font-size="18">ticker · date · asset_type</text>
+  <text x="104" y="306" fill="#7fa1c5" font-size="16">配置 / 身份解析 / 初始 State</text>
+
+  <polyline points="321,257 380,257 380,207 425,207" fill="none" stroke="#4aa8ff" stroke-width="4"/>
+  <polygon points="425,207 411,199 411,215" fill="#4aa8ff"/>
+  <polyline points="321,257 380,257 380,347 425,347" fill="none" stroke="#4aa8ff" stroke-width="4"/>
+  <polygon points="425,347 411,339 411,355" fill="#4aa8ff"/>
+  <polyline points="321,257 380,257 380,487 425,487" fill="none" stroke="#4aa8ff" stroke-width="4"/>
+  <polygon points="425,487 411,479 411,495" fill="#4aa8ff"/>
+  <polyline points="321,257 380,257 380,627 425,627" fill="none" stroke="#4aa8ff" stroke-width="4"/>
+  <polygon points="425,627 411,619 411,635" fill="#4aa8ff"/>
+
+  <text x="428" y="171" fill="#65d7ff" font-size="18" font-weight="700">START FAN-OUT · 四路并发 · 私有消息通道</text>
+
+  <rect x="425" y="185" width="335" height="102" rx="28" fill="#0e3d54" stroke="#22c7e8" stroke-width="2"/>
+  <circle cx="474" cy="236" r="27" fill="#22c7e8"/>
+  <text x="464" y="244" fill="#07111f" font-size="22" font-weight="700">M</text>
+  <text x="518" y="226" fill="#f4fbff" font-size="22" font-weight="700">Market Analyst</text>
+  <text x="518" y="255" fill="#a9d6e3" font-size="16">价格 · 指标 · verified snapshot</text>
+
+  <rect x="425" y="325" width="335" height="102" rx="28" fill="#20344d" stroke="#7aa7ff" stroke-width="2"/>
+  <circle cx="474" cy="376" r="27" fill="#7aa7ff"/>
+  <text x="465" y="384" fill="#07111f" font-size="22" font-weight="700">S</text>
+  <text x="518" y="366" fill="#f4fbff" font-size="22" font-weight="700">Sentiment Analyst</text>
+  <text x="518" y="395" fill="#bdcdec" font-size="16">预取新闻 · StockTwits · Reddit</text>
+
+  <rect x="425" y="465" width="335" height="102" rx="28" fill="#243052" stroke="#9b8cff" stroke-width="2"/>
+  <circle cx="474" cy="516" r="27" fill="#9b8cff"/>
+  <text x="465" y="524" fill="#07111f" font-size="22" font-weight="700">N</text>
+  <text x="518" y="506" fill="#f4fbff" font-size="22" font-weight="700">News Analyst</text>
+  <text x="518" y="535" fill="#cbc3ef" font-size="16">个股新闻 · 宏观 · 预测市场</text>
+
+  <rect x="425" y="605" width="335" height="102" rx="28" fill="#153d3d" stroke="#4ed1a7" stroke-width="2"/>
+  <circle cx="474" cy="656" r="27" fill="#4ed1a7"/>
+  <text x="466" y="664" fill="#07111f" font-size="22" font-weight="700">F</text>
+  <text x="518" y="646" fill="#f4fbff" font-size="19" font-weight="700">Fundamentals Analyst</text>
+  <text x="518" y="675" fill="#addbd0" font-size="16">估值 · 三张财务报表</text>
+
+  <path d="M760 236 C806 236 806 376 842 376 C806 376 806 516 760 516" fill="none" stroke="#5c7797" stroke-width="3"/>
+  <path d="M760 376 C806 376 806 446 842 446 C806 446 806 656 760 656" fill="none" stroke="#5c7797" stroke-width="3"/>
+  <rect x="842" y="340" width="255" height="142" rx="52" fill="#3b2d18" stroke="#ffbd4a" stroke-width="3"/>
+  <circle cx="890" cy="386" r="22" fill="#ffbd4a"/>
+  <text x="881" y="394" fill="#261808" font-size="22" font-weight="700">✓</text>
+  <text x="927" y="392" fill="#fff7e7" font-size="20" font-weight="700">Analyst Barrier</text>
+  <text x="879" y="428" fill="#ecd19a" font-size="15">报告存在 OR done 标记齐全</text>
+  <text x="879" y="456" fill="#b89c6c" font-size="15">吸收跨 super-step 的早到信号</text>
+
+  <polyline points="1097,411 1150,411 1150,254 1208,254" fill="none" stroke="#ffbd4a" stroke-width="4"/>
+  <polygon points="1208,254 1194,246 1194,262" fill="#ffbd4a"/>
+
+  <ellipse cx="1302" cy="254" rx="94" ry="62" fill="#174d3c" stroke="#53e0a7" stroke-width="3"/>
+  <text x="1241" y="247" fill="#eafff7" font-size="22" font-weight="700">Bull</text>
+  <text x="1238" y="276" fill="#a8e8d1" font-size="16">看多研究员</text>
+  <ellipse cx="1512" cy="254" rx="94" ry="62" fill="#52283a" stroke="#ff739d" stroke-width="3"/>
+  <text x="1450" y="247" fill="#fff0f5" font-size="22" font-weight="700">Bear</text>
+  <text x="1448" y="276" fill="#efb5c8" font-size="16">看空研究员</text>
+  <path d="M1396 230 C1430 196 1468 196 1504 224" fill="none" stroke="#8ee7c7" stroke-width="3"/>
+  <polygon points="1504,224 1490,217 1492,231" fill="#8ee7c7"/>
+  <path d="M1418 281 C1450 318 1492 318 1518 292" fill="none" stroke="#ff8eae" stroke-width="3" transform="rotate(180 1468 300)"/>
+  <polygon points="1398,282 1412,276 1410,290" fill="#ff8eae"/>
+  <text x="1366" y="343" fill="#8fa5c1" font-size="15">2 × max_debate_rounds 次发言</text>
+
+  <polyline points="1512,316 1512,382 1398,382 1398,414" fill="none" stroke="#9b8cff" stroke-width="4"/>
+  <polygon points="1398,414 1390,400 1406,400" fill="#9b8cff"/>
+  <rect x="1178" y="414" width="440" height="108" rx="30" fill="#2d2b57" stroke="#9b8cff" stroke-width="3"/>
+  <text x="1213" y="457" fill="#f5f2ff" font-size="22" font-weight="700">Research Manager · Deep LLM</text>
+  <text x="1213" y="489" fill="#c7bfef" font-size="15">结构化 ResearchPlan → investment_plan</text>
+
+  <polyline points="1398,522 1398,562" fill="none" stroke="#7aa7ff" stroke-width="4"/>
+  <polygon points="1398,574 1390,560 1406,560" fill="#7aa7ff"/>
+  <polygon points="1178,574 1618,574 1584,684 1212,684" fill="#153552" stroke="#5ba8f5" stroke-width="3"/>
+  <text x="1305" y="617" fill="#f2f8ff" font-size="23" font-weight="700">Trader · Quick LLM</text>
+  <text x="1258" y="650" fill="#b5d3ed" font-size="15">结构化 BUY / HOLD / SELL + 目标价 / 止损</text>
+
+  <polyline points="1398,684 1398,730 1110,730 1110,780" fill="none" stroke="#ff9c55" stroke-width="4"/>
+  <polygon points="1110,792 1102,778 1118,778" fill="#ff9c55"/>
+  <circle cx="1110" cy="854" r="64" fill="#55331c" stroke="#ff9c55" stroke-width="3"/>
+  <text x="1072" y="848" fill="#fff4e8" font-size="16" font-weight="700">Aggressive</text>
+  <text x="1082" y="876" fill="#f1c29e" font-size="15">进取风控</text>
+  <circle cx="1398" cy="854" r="64" fill="#283b53" stroke="#76b7ff" stroke-width="3"/>
+  <text x="1364" y="848" fill="#f2f8ff" font-size="20" font-weight="700">Neutral</text>
+  <text x="1370" y="876" fill="#b7d7f5" font-size="15">中性风控</text>
+  <circle cx="1684" cy="854" r="64" fill="#314736" stroke="#77d691" stroke-width="3"/>
+  <text x="1640" y="848" fill="#f1fff4" font-size="14" font-weight="700">Conservative</text>
+  <text x="1654" y="876" fill="#b9e4c4" font-size="15">保守风控</text>
+  <polyline points="1174,854 1334,854" fill="none" stroke="#ffb378" stroke-width="3"/>
+  <polygon points="1334,854 1320,846 1320,862" fill="#ffb378"/>
+  <polyline points="1462,854 1620,854" fill="none" stroke="#77b9ff" stroke-width="3"/>
+  <polygon points="1620,854 1606,846 1606,862" fill="#77b9ff"/>
+  <path d="M1684 918 C1684 978 1110 978 1110 930" fill="none" stroke="#77d691" stroke-width="3"/>
+  <polygon points="1110,918 1102,932 1118,932" fill="#77d691"/>
+  <text x="1332" y="955" fill="#8fa5c1" font-size="15">3 × max_risk_discuss_rounds 次发言</text>
+
+  <polyline points="1398,918 1398,1000" fill="none" stroke="#f6d365" stroke-width="4"/>
+  <polygon points="1398,1012 1390,998 1406,998" fill="#f6d365"/>
+  <path d="M1150 1012 Q1398 952 1646 1012 L1600 1112 Q1398 1160 1196 1112 Z" fill="#493e1d" stroke="#f6d365" stroke-width="3"/>
+  <text x="1250" y="1060" fill="#fffbea" font-size="22" font-weight="700">Portfolio Manager · Deep LLM</text>
+  <text x="1268" y="1094" fill="#e9d98e" font-size="15">历史记忆 + 风险辩论 → 最终五档评级</text>
+
+  <rect x="72" y="790" width="720" height="332" rx="44" fill="#0b1d2e" stroke="#284968" stroke-width="2"/>
+  <text x="110" y="838" fill="#dcecff" font-size="24" font-weight="700">三条横向保障线</text>
+  <path d="M112 878 L170 878 L190 856 L212 900 L236 866 L262 878 L330 878" fill="none" stroke="#61d5ff" stroke-width="4"/>
+  <text x="358" y="884" fill="#f0f8ff" font-size="20" font-weight="700">工具与数据路由</text>
+  <text x="358" y="912" fill="#91b1ce" font-size="14">ToolNode → route_to_vendor → 显式 vendor 链 / 哨兵降级</text>
+  <path d="M112 966 C154 924 214 924 256 966 C214 1008 154 1008 112 966 Z" fill="#17384a" stroke="#6ed8d0" stroke-width="3"/>
+  <circle cx="184" cy="966" r="20" fill="#6ed8d0"/>
+  <text x="358" y="972" fill="#f0f8ff" font-size="20" font-weight="700">两类记忆</text>
+  <text x="358" y="1000" fill="#91b1ce" font-size="14">短期：AgentState / 消息；长期：Markdown 决策日志与反思</text>
+  <path d="M112 1060 L154 1028 L196 1060 L238 1028 L280 1060" fill="none" stroke="#f2c85b" stroke-width="4"/>
+  <text x="358" y="1057" fill="#f0f8ff" font-size="20" font-weight="700">失败恢复与边界</text>
+  <text x="358" y="1085" fill="#91b1ce" font-size="13">SDK retry · 数据源 retry/fallback · SQLite checkpoint · recursion limit</text>
+
+  <text x="90" y="1177" fill="#647f9e" font-size="13">依据当前代码生成 · “可调用工具”以 Agent bind_tools 为准</text>
+</svg>
