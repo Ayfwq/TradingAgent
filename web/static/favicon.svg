@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title desc">
+  <title id="title">TradingAgents</title>
+  <desc id="desc">上升曲线与蜡烛线组成的 TradingAgents 图标</desc>
+  <defs>
+    <linearGradient id="bg" x1="4" y1="4" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#172744" />
+      <stop offset="1" stop-color="#0b1426" />
+    </linearGradient>
+    <linearGradient id="trend" x1="4" y1="24" x2="28" y2="7" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#51e0bd" />
+      <stop offset="1" stop-color="#9c8cff" />
+    </linearGradient>
+  </defs>
+
+  <rect width="32" height="32" rx="8" fill="url(#bg)" />
+  <rect x="1" y="1" width="30" height="30" rx="7" fill="none" stroke="#2a4265" />
+
+  <!-- 简化蜡烛线 -->
+  <g stroke-linecap="round">
+    <path d="M6 12v13M6 15h0" stroke="#62d9c0" stroke-width="1.4" />
+    <rect x="4.4" y="15" width="3.2" height="6" rx="0.8" fill="#62d9c0" />
+    <path d="M12 9v14" stroke="#e3a96f" stroke-width="1.4" />
+    <rect x="10.4" y="12" width="3.2" height="7" rx="0.8" fill="#e3a96f" />
+    <path d="M18 13v12" stroke="#62d9c0" stroke-width="1.4" />
+    <rect x="16.4" y="15" width="3.2" height="6" rx="0.8" fill="#62d9c0" />
+    <path d="M24 7v14" stroke="#9c8cff" stroke-width="1.4" />
+    <rect x="22.4" y="9" width="3.2" height="7" rx="0.8" fill="#9c8cff" />
+  </g>
+
+  <!-- 主视觉：上涨曲线与箭头 -->
+  <path d="M4 24c4-1 5-5 8-4 3 1 3 3 6 1 3-2 4-8 10-12" fill="none" stroke="url(#trend)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="m24.8 9.1 3.2-.1-.9 3.1" fill="none" stroke="#b3a8ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+</svg>
