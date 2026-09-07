@@ -224,6 +224,8 @@ reports/
 
 # TradingAgents local runtime state (never commit API keys, reports or caches)
 .tradingagents/
+.runtime/
+.workbuddy/
 logs/
 results/
 eval_results/
@@ -244,6 +246,15 @@ deploy.local.yml
 *.crt
 *.p12
 *.pfx
+
+# Local deployment/debug scripts may contain hostnames or credentials
+check_health.py
+deploy_to_server.py
+deploy_update.py
+test_ssh.py
+
+# Virtual environments created at the project root
+pyvenv.cfg
 
 # Editors / operating systems
 .idea/

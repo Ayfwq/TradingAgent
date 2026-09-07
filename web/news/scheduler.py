@@ -10,6 +10,17 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 
+from web.metrics import (
+    NEWS_AI_SUMMARIES_TOTAL,
+    NEWS_ENABLED_SOURCES,
+    NEWS_FETCH_DURATION_SECONDS,
+    NEWS_FETCH_RUNS_TOTAL,
+    NEWS_ITEMS_IN_DB,
+    NEWS_ITEMS_TOTAL,
+    NEWS_SOURCE_DURATION_SECONDS,
+    NEWS_SOURCE_RESULTS_TOTAL,
+    NEWS_WORKER_HEARTBEAT_AGE_SECONDS,
+)
 from web.news.config import NewsSettings, SourceConfig
 from web.news.models import FetchRunStats, utc_now
 from web.news.pipeline import AISummarizer, build_item, persist_item
@@ -43,6 +54,8 @@ class NewsScheduler:
                 source.source_id, source.name, source.url,
                 source.enabled, source.interval_minutes,
             )
+        # 记录启用的来源数量
+        NEWS_ENABLED_SOURCES.set(len([s for s in self.sources if s.enabled]))
 
     # ------------------------------------------------------------------
 
@@ -81,6 +94,7 @@ class NewsScheduler:
             "ai_summaries": 0,
         }
         if not due_sources:
+            NEWS_FETCH_RUNS_TOTAL.labels(status="empty").inc()
             return summary
 
         ai_budget = [self.settings.ai_max_items_per_run]
@@ -109,9 +123,23 @@ class NewsScheduler:
 
         self.repo.prune(self.settings.retention_days)
         self.heartbeat()
+        duration = time.monotonic() - started
+        # 更新 Prometheus 指标
+        NEWS_FETCH_DURATION_SECONDS.observe(duration)
+        NEWS_FETCH_RUNS_TOTAL.labels(status="ok").inc()
+        NEWS_ITEMS_TOTAL.labels(disposition="new").inc(summary["new_items"])
+        NEWS_ITEMS_TOTAL.labels(disposition="duplicate").inc(summary["duplicates"])
+        NEWS_ITEMS_TOTAL.labels(disposition="filtered").inc(summary["filtered"])
+        NEWS_AI_SUMMARIES_TOTAL.labels(status="generated").inc(summary["ai_summaries"])
+        # 更新数据库中的条目数
+        try:
+            enabled_ids = [s.source_id for s in self.sources if s.enabled]
+            NEWS_ITEMS_IN_DB.set(self.repo.count_items(True, enabled_ids))
+        except Exception:  # noqa: BLE001
+            pass
         logger.info(
             "News cycle done in %.1fs: %d ok / %d failed, +%d new, %d dup, %d filtered, %d AI",
-            time.monotonic() - started,
+            duration,
             summary["sources_ok"], summary["sources_failed"],
             summary["new_items"], summary["duplicates"], summary["filtered"],
             summary["ai_summaries"],
@@ -151,6 +179,7 @@ class NewsScheduler:
                 if attempt < MAX_ATTEMPTS - 1:
                     time.sleep(min(2**attempt, 8))
         duration_ms = int((time.monotonic() - attempt_started) * 1000)
+        duration_seconds = (time.monotonic() - attempt_started)
 
         if outcome is None:
             stats.status = "error"
@@ -159,6 +188,9 @@ class NewsScheduler:
             stats.duration_ms = duration_ms
             self.repo.mark_source_failure(source.source_id, last_error or "未知错误", duration_ms)
             self.repo.record_run(stats)
+            # 更新 Prometheus 指标
+            NEWS_SOURCE_RESULTS_TOTAL.labels(source_id=source.source_id, status="error").inc()
+            NEWS_SOURCE_DURATION_SECONDS.labels(source_id=source.source_id).observe(duration_seconds)
             return {
                 "ok": False, "error": last_error,
                 "new_count": 0, "duplicate_count": 0, "filtered_count": 0, "ai_count": 0,
@@ -172,6 +204,9 @@ class NewsScheduler:
             stats.finished_at = utc_now()
             stats.duration_ms = duration_ms
             self.repo.record_run(stats)
+            # 更新 Prometheus 指标
+            NEWS_SOURCE_RESULTS_TOTAL.labels(source_id=source.source_id, status="not_modified").inc()
+            NEWS_SOURCE_DURATION_SECONDS.labels(source_id=source.source_id).observe(duration_seconds)
             return {
                 "ok": True, "not_modified": True,
                 "new_count": 0, "duplicate_count": 0, "filtered_count": 0, "ai_count": 0,
@@ -201,6 +236,9 @@ class NewsScheduler:
         stats.finished_at = utc_now()
         stats.duration_ms = duration_ms
         self.repo.record_run(stats)
+        # 更新 Prometheus 指标
+        NEWS_SOURCE_RESULTS_TOTAL.labels(source_id=source.source_id, status="ok").inc()
+        NEWS_SOURCE_DURATION_SECONDS.labels(source_id=source.source_id).observe(duration_seconds)
         return {
             "ok": True,
             "new_count": stats.new_count,

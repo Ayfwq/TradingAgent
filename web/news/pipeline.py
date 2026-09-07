@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
 from hashlib import sha1
 
+from web.metrics import LLM_REQUESTS_TOTAL, LLM_REQUEST_DURATION_SECONDS, NEWS_AI_SUMMARIES_TOTAL
 from web.news.config import (
     CATEGORY_KEYWORDS,
     CATEGORY_LABELS,
@@ -203,10 +205,20 @@ class AISummarizer:
             summary=clean_html(original_summary)[:800] or "（无摘要）",
             categories="、".join(f"{key}({label})" for key, label in CATEGORY_LABELS.items()),
         )
+        provider = self.settings.ai_provider or "unknown"
+        model = self.settings.ai_model or "unknown"
+        start_time = time.time()
         try:
             future = self._executor.submit(llm.invoke, prompt)
             response = future.result(timeout=self.settings.ai_request_timeout_seconds)
+            duration = time.time() - start_time
+            LLM_REQUESTS_TOTAL.labels(provider=provider, model=model, status="success").inc()
+            LLM_REQUEST_DURATION_SECONDS.labels(provider=provider, model=model).observe(duration)
         except (FutureTimeoutError, Exception):  # noqa: BLE001
+            duration = time.time() - start_time
+            LLM_REQUESTS_TOTAL.labels(provider=provider, model=model, status="error").inc()
+            LLM_REQUEST_DURATION_SECONDS.labels(provider=provider, model=model).observe(duration)
+            NEWS_AI_SUMMARIES_TOTAL.labels(status="failed").inc()
             return None
         content = getattr(response, "content", "")
         if isinstance(content, list):
@@ -215,7 +227,10 @@ class AISummarizer:
             )
         if not isinstance(content, str):
             return None
-        return _validate_ai_payload(content, title, original_summary)
+        result = _validate_ai_payload(content, title, original_summary)
+        if result is None:
+            NEWS_AI_SUMMARIES_TOTAL.labels(status="invalid").inc()
+        return result
 
 
 def _validate_ai_payload(content: str, title: str, original_summary: str) -> dict | None:

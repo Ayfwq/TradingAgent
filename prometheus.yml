@@ -1,0 +1,39 @@
+# Prometheus 配置文件
+# 用于采集 TradingAgents 项目的监控指标
+
+global:
+  # 采集间隔
+  scrape_interval: 15s
+  # 评估规则间隔
+  evaluation_interval: 15s
+
+# 采集规则
+scrape_configs:
+  # Web 服务指标（FastAPI）
+  - job_name: 'tradingagents-web'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['tradingagents:8000']
+        labels:
+          service: 'web'
+          environment: 'production'
+
+  # News Worker 指标
+  - job_name: 'tradingagents-news-worker'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['news-worker:9091']
+        labels:
+          service: 'news-worker'
+          environment: 'production'
+
+# 告警规则文件（可选）
+# rule_files:
+#   - "alert_rules.yml"
+
+# 告警配置（可选）
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets:
+#           - alertmanager:9093

@@ -29,11 +29,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["python", "-m", "web.news_worker"]
+    command: ["python", "-m", "web.news_worker", "--metrics"]
     env_file:
       - .env
     volumes:
       - tradingagents_data:/data
+    ports:
+      # 9091 可能被本机其他服务占用；容器内仍固定使用 9091，Prometheus
+      # 通过 Compose 网络访问 news-worker:9091，不受宿主机端口影响。
+      - "${TRADINGAGENTS_NEWS_METRICS_PORT:-9092}:9091"
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
@@ -55,5 +59,32 @@ services:
       start_period: 90s
       retries: 3
 
+  # Prometheus 监控服务
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   tradingagents_data:
+  prometheus_data:

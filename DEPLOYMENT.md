@@ -61,7 +61,8 @@ TRADINGAGENTS_DATA_VENDORS={"core_stock_apis":"akshare","technical_indicators":"
 docker compose build
 docker compose up -d
 docker compose ps
-curl http://127.0.0.1:8000/api/health
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/metrics
 curl http://127.0.0.1:8000/api/news/health
 ```
 
@@ -143,6 +144,8 @@ AI 摘要失败（无 Key、403、超时、返回非法 JSON）会自动降级�
 - Worker 与 Web 使用同一镜像，仅启动命令不同（`python -m web.news_worker`）；
 - 两个服务共用 `tradingagents_data` 卷，`restart: unless-stopped`，非 root 用户 + `no-new-privileges`；
 - Worker 健康检查：`python -m web.news_worker --health`（心跳超过 3 倍间隔未更新则判为不健康）；
+- Web 健康检查：`GET /health`；Prometheus 抓取：`GET /metrics`。应用容器监听 `0.0.0.0:8000`，Compose 默认映射为宿主机 `5000`；
+- `/metrics` 含进程与业务指标，必须在云安全组或反向代理中只允许 Oncall/Prometheus 所在服务器访问，不要向公网开放；
 - 部署后先观察 24 小时（`docker compose logs news-worker`），再考虑扩大来源；
 - 默认国内源包括工信部、财联社、东方财富、中国新闻网、InfoQ 与量子位；海外源仅用于补充全球 AI 产业链。
 

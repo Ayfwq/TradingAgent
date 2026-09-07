@@ -1,6 +1,7 @@
 .git
 .github
 .venv
+lib64
 .env
 .env.*
 !.env.example

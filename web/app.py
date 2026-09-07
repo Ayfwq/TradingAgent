@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import sqlite3
 import threading
+import time
 import uuid
 from copy import deepcopy
 from datetime import date, datetime, timezone
@@ -12,15 +14,25 @@ from typing import Literal
 
 import requests
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field, field_validator
 
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from web.instrument_search import instrument_search_service
+from web.metrics import (
+    ANALYSIS_RECORDS_COUNT,
+    ANALYSIS_TASK_DURATION_SECONDS,
+    ANALYSIS_TASKS_RUNNING,
+    ANALYSIS_TASKS_TOTAL,
+    APP_START_TIME,
+    APP_UPTIME_SECONDS,
+)
 from web.model_profiles import MODEL_TEMPLATES, model_profile_service
 from web.news.api import router as news_router
+from web.news.config import NewsSettings
 from web.report_history import get_report, list_reports
 
 logger = logging.getLogger(__name__)
@@ -105,6 +117,16 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+
+# 使用 FastAPI 专用的 Prometheus instrumentation。handler 是 FastAPI 路由模板，
+# 不会把 task_id、profile_id 等动态值作为高基数标签；健康检查与 metrics 自身不计入
+# 业务请求统计，避免 Oncall 轮询污染业务指标。
+instrumentator = Instrumentator(
+    should_group_status_codes=False,
+    should_ignore_untemplated=True,
+    excluded_handlers=("/health", "/api/health", "/metrics"),
+)
+instrumentator.instrument(app)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(news_router)
 
@@ -112,9 +134,38 @@ _records: dict[str, AnalysisRecord] = {}
 _records_lock = threading.Lock()
 _analysis_gate = asyncio.Semaphore(1)
 
+# 记录应用启动时间
+APP_START_TIME.set(time.time())
+
+
+@app.on_event("startup")
+async def startup_metrics():
+    """启动时初始化指标更新任务。"""
+    async def update_uptime():
+        while True:
+            APP_UPTIME_SECONDS.set(time.time() - APP_START_TIME._value.get())
+            ANALYSIS_RECORDS_COUNT.set(len(_records))
+            await asyncio.sleep(10)
+    asyncio.create_task(update_uptime())
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _check_critical_dependencies() -> bool:
+    """执行快速、无敏感信息的关键依赖检查。"""
+    try:
+        settings = NewsSettings.from_env()
+        if not settings.enabled:
+            return True
+        # SQLite 是本项目资讯 API 的本地关键依赖；只执行 SELECT 1，超时很短，
+        # 不访问外部 API，也不会把连接串、密钥或路径写入响应。
+        with sqlite3.connect(str(settings.database_path), timeout=0.2) as connection:
+            connection.execute("SELECT 1").fetchone()
+    except (OSError, ValueError, sqlite3.Error):
+        return False
+    return True
 
 
 def _update_record(task_id: str, **changes) -> None:
@@ -194,11 +245,19 @@ def _run_analysis(payload: AnalysisRequest) -> dict:
 
 async def _execute(task_id: str, payload: AnalysisRequest) -> None:
     async with _analysis_gate:
+        ANALYSIS_TASKS_RUNNING.set(1)
+        ANALYSIS_TASKS_TOTAL.labels(status="running").inc()
         _update_record(task_id, status="running", phase="多智能体正在协作分析")
+        start = time.time()
         try:
             result = await asyncio.to_thread(_run_analysis, payload)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Analysis %s failed", task_id)
+            ANALYSIS_TASKS_TOTAL.labels(status="failed").inc()
+            ANALYSIS_TASK_DURATION_SECONDS.labels(
+                ticker=payload.ticker, asset_type=payload.asset_type
+            ).observe(time.time() - start)
+            ANALYSIS_TASKS_RUNNING.set(0)
             _update_record(
                 task_id,
                 status="failed",
@@ -206,6 +265,11 @@ async def _execute(task_id: str, payload: AnalysisRequest) -> None:
                 error=f"分析失败：{type(exc).__name__}。请检查模型密钥、网络和数据源配置。",
             )
             return
+        ANALYSIS_TASKS_TOTAL.labels(status="completed").inc()
+        ANALYSIS_TASK_DURATION_SECONDS.labels(
+            ticker=payload.ticker, asset_type=payload.asset_type
+        ).observe(time.time() - start)
+        ANALYSIS_TASKS_RUNNING.set(0)
         _update_record(
             task_id,
             status="completed",
@@ -220,10 +284,16 @@ async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.get("/api/health")
-async def health() -> dict[str, str]:
+@app.get("/health")
+@app.get("/api/health", include_in_schema=False)
+async def health() -> JSONResponse:
     logger.debug("Health check requested")
-    return {"status": "ok"}
+    if not _check_critical_dependencies():
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False, "status": "unhealthy"},
+        )
+    return JSONResponse(content={"ok": True, "status": "healthy"})
 
 
 @app.post("/api/instruments/search")
@@ -374,6 +444,7 @@ async def create_analysis(payload: AnalysisRequest) -> dict[str, str]:
     )
     with _records_lock:
         _records[task_id] = record
+    ANALYSIS_TASKS_TOTAL.labels(status="queued").inc()
     asyncio.create_task(_execute(task_id, payload))
     return {"id": task_id, "status": "queued"}
 
@@ -386,3 +457,8 @@ async def get_analysis(task_id: str) -> AnalysisRecord:
     if record is None:
         raise HTTPException(status_code=404, detail="分析任务不存在或服务已重启")
     return record
+
+
+# 必须在所有业务路由注册后暴露，instrumentator 才能按 FastAPI 路由模板生成
+# handler 标签；/health 和 /metrics 已在上方配置为不参与业务请求统计。
+instrumentator.expose(app, include_in_schema=False)

@@ -7,6 +7,7 @@
 Docker/ECS：
     python -m web.news_worker            # 由 docker-compose 的 news-worker 服务调用
     python -m web.news_worker --health   # 容器健康检查
+    python -m web.news_worker --metrics  # 启动 metrics HTTP 服务器
 """
 
 from __future__ import annotations
@@ -15,10 +16,12 @@ import argparse
 import logging
 import sys
 import time
+import threading
 
 from web.news.config import NewsSettings, all_sources_enabled, sources_for_settings
 from web.news.repository import NewsRepository
 from web.news.scheduler import NewsScheduler
+from web.metrics import generate_metrics, NEWS_WORKER_HEARTBEAT_AGE_SECONDS
 
 logger = logging.getLogger("web.news_worker")
 
@@ -31,7 +34,28 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interval", type=int, default=None, help="覆盖抓取间隔（分钟）")
     parser.add_argument("--all-sources", action="store_true", help="启用包括备用源在内的全部来源")
     parser.add_argument("--no-ai-summary", action="store_true", help="关闭 AI 摘要调用，仅使用来源摘要降级运行")
+    parser.add_argument("--metrics-port", type=int, default=9091, help="Prometheus metrics 端口（默认 9091）")
+    parser.add_argument("--metrics", action="store_true", help="启动 metrics HTTP 服务器")
     return parser
+
+
+def _start_metrics_server(port: int):
+    """启动 Prometheus metrics HTTP 服务器。"""
+    from prometheus_client import start_http_server
+    start_http_server(port)
+    logger.info(f"Prometheus metrics server started on port {port}")
+
+
+def _heartbeat_monitor(scheduler: NewsScheduler):
+    """定期更新心跳年龄指标。"""
+    while True:
+        try:
+            age = scheduler.heartbeat_age_seconds()
+            if age is not None:
+                NEWS_WORKER_HEARTBEAT_AGE_SECONDS.set(age)
+        except Exception:
+            pass
+        time.sleep(30)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -71,6 +95,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"heartbeat stale: {age}", file=sys.stderr)
             return 1
         return 0
+
+    # 启动 metrics HTTP 服务器
+    if args.metrics:
+        _start_metrics_server(args.metrics_port)
+        # 启动心跳监控线程
+        monitor_thread = threading.Thread(target=_heartbeat_monitor, args=(scheduler,), daemon=True)
+        monitor_thread.start()
 
     try:
         if args.once:
