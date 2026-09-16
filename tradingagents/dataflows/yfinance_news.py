@@ -1,4 +1,4 @@
-"""yfinance-based news data fetching functions."""
+"""基于 yfinance 的新闻数据获取函数。"""
 
 import contextlib
 import logging
@@ -15,18 +15,17 @@ logger = logging.getLogger(__name__)
 
 
 def _as_utc(dt: datetime) -> datetime:
-    """Normalize a datetime to UTC-aware; a naive value is assumed to be UTC.
+    """将 datetime 规范化为带 UTC 时区的值；无时区值视为 UTC。
 
-    Window bounds arrive naive (parsed from ``yyyy-mm-dd``) while article
-    timestamps may be offset-aware, so every operand is normalized before
-    comparison. Without this the filter depends on the host timezone (#1126).
+    窗口边界来自无时区的 ``yyyy-mm-dd`` 解析值，而文章时间戳可能带有时区，
+    因此比较前统一规范化所有操作数。否则过滤结果会依赖主机时区（#1126）。
     """
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
 
 
 def _extract_article_data(article: dict) -> dict:
-    """Extract article data from yfinance news format (handles nested 'content' structure)."""
-    # Handle nested content structure
+    """从 yfinance 新闻格式提取文章数据（处理嵌套的 content 结构）。"""
+    # 处理嵌套的 content 结构。
     if "content" in article:
         content = article["content"]
         title = content.get("title", "No title")
@@ -34,11 +33,11 @@ def _extract_article_data(article: dict) -> dict:
         provider = content.get("provider", {})
         publisher = provider.get("displayName", "Unknown")
 
-        # Get URL from canonicalUrl or clickThroughUrl
+        # 从 canonicalUrl 或 clickThroughUrl 获取 URL。
         url_obj = content.get("canonicalUrl") or content.get("clickThroughUrl") or {}
         link = url_obj.get("url", "")
 
-        # Get publish date
+        # 获取发布时间。
         pub_date_str = content.get("pubDate", "")
         pub_date = None
         if pub_date_str:
@@ -53,14 +52,12 @@ def _extract_article_data(article: dict) -> dict:
             "pub_date": pub_date,
         }
     else:
-        # Fallback for flat structure. Parse the epoch publish time so flat
-        # articles are date-filterable too (otherwise they bypass the
-        # historical window and leak future news, #992/#1007).
+        # 平面结构的回退处理。解析 epoch 发布时间，使平面文章也能按日期过滤，
+        # 否则它们会绕过历史窗口并泄漏未来新闻（#992/#1007）。
         pub_date = None
         ts = article.get("providerPublishTime")
         if ts:
-            # Epoch seconds are UTC; parse them as UTC-aware so filtering does
-            # not shift with the host timezone (#1126).
+            # Epoch 秒数是 UTC；解析为带 UTC 时区的值，避免过滤结果随主机时区偏移（#1126）。
             with contextlib.suppress(ValueError, OSError, TypeError):
                 pub_date = datetime.fromtimestamp(ts, tz=timezone.utc)
         return {
@@ -73,13 +70,12 @@ def _extract_article_data(article: dict) -> dict:
 
 
 def _in_news_window(pub_date, start_dt, end_dt) -> bool:
-    """Whether an article belongs in the half-open window ``[start, end + 1 day)``.
+    """判断文章是否属于半开区间 ``[start, end + 1 day)``。
 
-    Every operand is normalized to UTC, and the upper bound is exclusive so an
-    article stamped exactly at midnight after ``end_dt`` cannot leak into a
-    historical run (#1126). An undated article is kept only when the window
-    reaches the present (live run) — in a historical/backtest window it's
-    excluded, since we can't prove it isn't future news (#992/#1007).
+    所有操作数都会规范化为 UTC，上边界不包含在内，因此恰好标记为 end_dt 次日
+    午夜的文章不会泄漏到历史运行中（#1126）。无日期文章只有在窗口到达当前时间
+    （实时运行）时才保留；在历史/回测窗口中排除，因为无法证明它不是未来新闻
+    （#992/#1007）。
     """
     end = _as_utc(end_dt)
     if pub_date is not None:
@@ -93,21 +89,20 @@ def get_news_yfinance(
     end_date: str,
 ) -> str:
     """
-    Retrieve news for a specific stock ticker using yfinance.
+    使用 yfinance 获取指定股票代码的新闻。
 
     Args:
-        ticker: Stock ticker symbol (e.g., "AAPL")
-        start_date: Start date in yyyy-mm-dd format
-        end_date: End date in yyyy-mm-dd format
+        ticker：股票代码（例如 "AAPL"）。
+        start_date：yyyy-mm-dd 格式的开始日期。
+        end_date：yyyy-mm-dd 格式的结束日期。
 
     Returns:
-        Formatted string containing news articles
+        包含新闻文章的格式化字符串。
     """
-    logger.debug("get_news_yfinance called for %s (%s to %s)", ticker, start_date, end_date)
+    logger.debug("已调用 get_news_yfinance：%s（%s 至 %s）", ticker, start_date, end_date)
     article_limit = get_config()["news_article_limit"]
-    # Query Yahoo with the canonical symbol, like every other yfinance path —
-    # a raw broker/forex/crypto alias (XAUUSD, BTCUSD) otherwise silently
-    # returns no news. Keep the user's ticker in the report header.
+    # 与其他 yfinance 路径一样使用规范代码查询 Yahoo；否则原始经纪商/外汇/加密
+    # 别名（XAUUSD、BTCUSD）可能静默返回空新闻。报告标题保留用户输入的代码。
     canonical = normalize_symbol(ticker)
     resolved = "" if canonical == ticker else f" (resolved to {canonical})"
     try:
@@ -115,9 +110,9 @@ def get_news_yfinance(
         news = yf_retry(lambda: stock.get_news(count=article_limit))
 
         if not news:
-            return f"No news found for {ticker}{resolved}"
+            return f"未找到 {ticker}{resolved} 的新闻。"
 
-        # Parse date range for filtering
+        # 解析日期范围以便过滤。
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
 
@@ -127,15 +122,15 @@ def get_news_yfinance(
         for article in news:
             data = _extract_article_data(article)
 
-            # Keep only articles within the requested window (look-ahead safe).
+            # 仅保留请求窗口内的文章（防止前视）。
             if not _in_news_window(data["pub_date"], start_dt, end_dt):
                 continue
 
-            news_str += f"### {data['title']} (source: {data['publisher']})\n"
+            news_str += f"### {data['title']}（来源：{data['publisher']}）\n"
             if data["summary"]:
                 news_str += f"{data['summary']}\n"
             if data["link"]:
-                news_str += f"Link: {data['link']}\n"
+                news_str += f"链接：{data['link']}\n"
             news_str += "\n"
             filtered_count += 1
 
@@ -144,14 +139,14 @@ def get_news_yfinance(
                 "no yfinance news for %s within %s..%s (fetched %d)",
                 ticker, start_date, end_date, len(news),
             )
-            return f"No news found for {ticker}{resolved} between {start_date} and {end_date}"
+            return f"在 {start_date} 至 {end_date} 期间未找到 {ticker}{resolved} 的新闻。"
 
-        logger.debug("yfinance returned %d news articles for %s", filtered_count, ticker)
-        return f"## {ticker}{resolved} News, from {start_date} to {end_date}:\n\n{news_str}"
+        logger.debug("yfinance 为 %s 返回 %d 篇新闻", ticker, filtered_count)
+        return f"## {ticker}{resolved} 的新闻（{start_date} 至 {end_date}）：\n\n{news_str}"
 
     except Exception as e:
-        logger.warning("yfinance news fetch failed for %s: %s", ticker, e)
-        return f"Error fetching news for {ticker}: {str(e)}"
+        logger.warning("获取 %s 的 yfinance 新闻失败：%s", ticker, e)
+        return f"获取 {ticker} 的新闻失败：{str(e)}"
 
 
 def get_global_news_yfinance(
@@ -160,17 +155,17 @@ def get_global_news_yfinance(
     limit: int | None = None,
 ) -> str:
     """
-    Retrieve global/macro economic news using yfinance Search.
+    使用 yfinance Search 获取全球/宏观经济新闻。
 
     Args:
-        curr_date: Current date in yyyy-mm-dd format
-        look_back_days: Number of days to look back. ``None`` falls back to
-            ``global_news_lookback_days`` from the active config.
-        limit: Maximum number of articles to return. ``None`` falls back to
-            ``global_news_article_limit`` from the active config.
+        curr_date：yyyy-mm-dd 格式的当前日期。
+        look_back_days：回溯天数。``None`` 使用当前配置中的
+            ``global_news_lookback_days``。
+        limit：最多返回的文章数。``None`` 使用当前配置中的
+            ``global_news_article_limit``。
 
     Returns:
-        Formatted string containing global news articles
+        包含全球新闻文章的格式化字符串。
     """
     config = get_config()
     if look_back_days is None:
@@ -192,14 +187,14 @@ def get_global_news_yfinance(
 
             if search.news:
                 for article in search.news:
-                    # Handle both flat and nested structures
+                    # 同时处理平面和嵌套结构。
                     if "content" in article:
                         data = _extract_article_data(article)
                         title = data["title"]
                     else:
                         title = article.get("title", "")
 
-                    # Deduplicate by title
+                    # 按标题去重。
                     if title and title not in seen_titles:
                         seen_titles.add(title)
                         all_news.append(article)
@@ -208,10 +203,10 @@ def get_global_news_yfinance(
                 break
 
         if not all_news:
-            logger.warning("yfinance returned no global news for %s", curr_date)
-            return f"No global news found for {curr_date}"
+            logger.warning("yfinance 未返回 %s 的全球新闻", curr_date)
+            return f"未找到 {curr_date} 的全球新闻。"
 
-        # Calculate date range
+        # 计算日期范围。
         curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
         start_dt = curr_dt - relativedelta(days=look_back_days)
         start_date = start_dt.strftime("%Y-%m-%d")
@@ -219,28 +214,27 @@ def get_global_news_yfinance(
         news_str = ""
         kept = 0
         for article in all_news[:limit]:
-            # Extract uniformly (flat + nested) and apply the same look-ahead-safe
-            # window filter, so flat articles can't leak future news (#1007).
+            # 统一提取（平面 + 嵌套）并应用相同的防前视窗口过滤，避免平面文章
+            # 泄漏未来新闻（#1007）。
             data = _extract_article_data(article)
             if not _in_news_window(data["pub_date"], start_dt, curr_dt):
                 continue
-            news_str += f"### {data['title']} (source: {data['publisher']})\n"
+            news_str += f"### {data['title']}（来源：{data['publisher']}）\n"
             if data["summary"]:
                 news_str += f"{data['summary']}\n"
             if data["link"]:
-                news_str += f"Link: {data['link']}\n"
+                news_str += f"链接：{data['link']}\n"
             news_str += "\n"
             kept += 1
 
-        # All candidates fell outside the window -> say so rather than return an
-        # empty-bodied report (#993).
+        # 所有候选文章都在窗口外时明确说明，而不是返回空报告（#993）。
         if kept == 0:
-            logger.warning("no yfinance global news within %s..%s (fetched %d)", start_date, curr_date, len(all_news))
-            return f"No global news found between {start_date} and {curr_date}"
+            logger.warning("yfinance 在 %s..%s 内没有全球新闻（已获取 %d 条）", start_date, curr_date, len(all_news))
+            return f"在 {start_date} 至 {curr_date} 期间未找到全球新闻。"
 
-        logger.debug("yfinance returned %d global news articles for %s", kept, curr_date)
-        return f"## Global Market News, from {start_date} to {curr_date}:\n\n{news_str}"
+        logger.debug("yfinance 为 %s 返回 %d 篇全球新闻", curr_date, kept)
+        return f"## 全球市场新闻（{start_date} 至 {curr_date}）：\n\n{news_str}"
 
     except Exception as e:
-        logger.warning("yfinance global news fetch failed for %s: %s", curr_date, e)
-        return f"Error fetching global news: {str(e)}"
+        logger.warning("获取 %s 的 yfinance 全球新闻失败：%s", curr_date, e)
+        return f"获取全球新闻失败：{str(e)}"

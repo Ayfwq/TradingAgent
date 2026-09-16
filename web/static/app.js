@@ -4,9 +4,6 @@ const processPanel = document.querySelector('#process');
 const reportPanel = document.querySelector('#report');
 const stages = [...document.querySelectorAll('.stage')];
 const submitButton = form.querySelector('button[type="submit"]');
-const historyCenter = document.querySelector('#history-center');
-const historyState = document.querySelector('#history-state');
-const historyList = document.querySelector('#history-list');
 const locatorPanel = document.querySelector('#locator-panel');
 const locatorForm = document.querySelector('#locator-form');
 const locatorState = document.querySelector('#locator-state');
@@ -14,66 +11,6 @@ const locatorResults = document.querySelector('#locator-results');
 let pollTimer = null;
 let stageTimer = null;
 let currentStage = 0;
-
-function reportDateLabel(item) {
-  const generated = item.generated_at ? item.generated_at.replace('T', ' ').slice(0, 19) : '时间未知';
-  return `分析日期 ${item.trade_date || '未知'} · 生成于 ${generated}`;
-}
-
-function renderHistory(items) {
-  if (!items.length) {
-    historyList.innerHTML = '<div class="history-empty"><strong>还没有找到历史研报</strong><p>完成一次分析后，完整报告会自动保存到这里。</p></div>';
-    return;
-  }
-  historyList.innerHTML = items.map((item) => `
-    <button class="history-card" type="button" data-report-id="${escapeHtml(item.id)}">
-      <div><span class="history-ticker">${escapeHtml(item.ticker)}</span><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(reportDateLabel(item))}</p></div>
-      <span class="history-open">查看完整报告 →</span>
-    </button>
-  `).join('');
-  historyList.querySelectorAll('[data-report-id]').forEach((button) => {
-    button.addEventListener('click', () => openHistoricalReport(button.dataset.reportId));
-  });
-}
-
-async function loadHistory() {
-  historyState.textContent = '正在读取历史研报…';
-  try {
-    const params = new URLSearchParams();
-    const query = document.querySelector('#history-query').value.trim();
-    const start = document.querySelector('#history-start').value;
-    const end = document.querySelector('#history-end').value;
-    if (query) params.set('query', query);
-    if (start) params.set('start_date', start);
-    if (end) params.set('end_date', end);
-    const response = await fetch(`/api/reports?${params.toString()}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error('无法读取历史研报');
-    const data = await response.json();
-    historyState.textContent = data.total ? `共找到 ${data.total} 份研报` : '没有符合条件的研报';
-    renderHistory(data.reports || []);
-  } catch (error) {
-    historyState.textContent = error.message;
-    historyList.innerHTML = '';
-  }
-}
-
-async function openHistoricalReport(reportId) {
-  try {
-    const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error('历史报告不存在或已损坏');
-    const historical = await response.json();
-    showReport({ ...historical, status: 'completed', phase: '历史报告' });
-  } catch (error) {
-    historyState.textContent = error.message;
-  }
-}
-
-document.querySelector('#history-trigger').addEventListener('click', () => {
-  historyCenter.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  loadHistory();
-});
-document.querySelector('#history-refresh').addEventListener('click', loadHistory);
-document.querySelector('#history-search').addEventListener('click', loadHistory);
 
 const today = new Date();
 const localToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -165,6 +102,147 @@ const escapeHtml = (value = '') => String(value)
   .replaceAll('"', '&quot;')
   .replaceAll("'", '&#039;');
 
+const historyReportSelect = document.querySelector('#history-report-select');
+const historyOpenButton = document.querySelector('#history-open');
+const historyPickerState = document.querySelector('#history-picker-state');
+const historyFilter = document.querySelector('#history-filter');
+const historyQuery = document.querySelector('#history-query');
+const reportDeleteButton = document.querySelector('#report-delete');
+const reportCloseButton = document.querySelector('#report-close');
+const historyResultsModal = document.querySelector('#history-results-modal');
+const historyResultsState = document.querySelector('#history-results-state');
+const historyResultsList = document.querySelector('#history-results-list');
+const historyResultsQuery = document.querySelector('#history-results-query');
+const historyResultsClose = document.querySelector('#history-results-close');
+let currentReportId = '';
+
+function closeModal(modal) {
+  modal.classList.add('hidden');
+  if (modal === reportPanel) restoreHistoryPickerState();
+  if (!document.querySelector('.modal-backdrop:not(.hidden)')) document.body.classList.remove('modal-open');
+}
+
+function openModal(modal) {
+  modal.classList.remove('hidden');
+  document.body.classList.add('modal-open');
+}
+
+function reportDateLabel(item) {
+  const generated = item.generated_at ? item.generated_at.replace('T', ' ').slice(0, 16) : '时间未知';
+  return `股票代码：${item.ticker} ｜ 分析日期：${item.trade_date || '日期未知'} ｜ 生成时间：${generated}`;
+}
+
+function restoreHistoryPickerState() {
+  const count = Math.max(0, historyReportSelect.options.length - 1);
+  historyPickerState.textContent = count ? `已保存 ${count} 份研报` : '完成分析后，研报会自动出现在这里';
+}
+
+function renderHistoryPicker(items) {
+  historyReportSelect.innerHTML = '<option value="">选择已生成的研报</option>' + items.map((item) => (
+    `<option value="${escapeHtml(item.id)}">${escapeHtml(reportDateLabel(item))}</option>`
+  )).join('');
+  historyOpenButton.disabled = !items.length;
+  restoreHistoryPickerState();
+}
+
+async function loadHistoryPicker(query = '') {
+  try {
+    const params = new URLSearchParams({ limit: '200' });
+    if (query) params.set('query', query);
+    const response = await fetch(`/api/reports?${params.toString()}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error('历史研报暂时无法读取');
+    const data = await response.json();
+    renderHistoryPicker(data.reports || []);
+  } catch (error) {
+    historyPickerState.textContent = error.message;
+    historyOpenButton.disabled = true;
+  }
+}
+
+async function openHistoricalReportById(reportId) {
+  if (!reportId) return;
+  historyOpenButton.disabled = true;
+  historyPickerState.textContent = '正在打开研报…';
+  try {
+    const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error('历史报告不存在或已损坏');
+    const historical = await response.json();
+    showReport({ ...historical, status: 'completed', phase: '历史报告' });
+  } catch (error) {
+    historyPickerState.textContent = error.message;
+  } finally {
+    historyOpenButton.disabled = false;
+  }
+}
+
+async function openHistoricalReport() {
+  await openHistoricalReportById(historyReportSelect.value);
+}
+
+function renderHistorySearchResults(items, query) {
+  historyResultsQuery.textContent = `股票代码：${query} · 找到 ${items.length} 份研报`;
+  if (!items.length) {
+    historyResultsState.textContent = '';
+    historyResultsList.innerHTML = '<div class="history-results-empty"><strong>未找到对应研报</strong><p>请检查股票代码是否正确，或先生成一份新的研报。</p></div>';
+    return;
+  }
+  historyResultsState.textContent = '请选择一份研报查看完整内容。';
+  historyResultsList.innerHTML = items.map((item) => {
+    const generated = item.generated_at ? item.generated_at.replace('T', ' ').slice(0, 16) : '时间未知';
+    return `<article class="history-result-card">
+      <div class="history-result-main">
+        <span class="history-result-ticker">${escapeHtml(item.ticker)}</span>
+        <strong>投资研究报告</strong>
+        <p>分析日期：${escapeHtml(item.trade_date || '日期未知')} · 生成时间：${escapeHtml(generated)}</p>
+      </div>
+      <button class="secondary-button" type="button" data-history-report-id="${escapeHtml(item.id)}">查看研报 →</button>
+    </article>`;
+  }).join('');
+  historyResultsList.querySelectorAll('[data-history-report-id]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      historyReportSelect.value = button.dataset.historyReportId;
+      closeModal(historyResultsModal);
+      await openHistoricalReportById(button.dataset.historyReportId);
+    });
+  });
+}
+
+async function searchHistoryReports(query) {
+  openModal(historyResultsModal);
+  historyResultsQuery.textContent = `股票代码：${query}`;
+  historyResultsState.textContent = '正在查找研报…';
+  historyResultsList.innerHTML = '';
+  try {
+    const params = new URLSearchParams({ limit: '200', query });
+    const response = await fetch(`/api/reports?${params.toString()}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error('历史研报查询失败');
+    const data = await response.json();
+    renderHistorySearchResults(data.reports || [], query);
+  } catch (error) {
+    historyResultsState.textContent = error.message;
+    historyResultsList.innerHTML = '<div class="history-results-empty"><strong>暂时无法查询</strong><p>请稍后重试。</p></div>';
+  }
+}
+
+historyReportSelect.addEventListener('change', () => {
+  historyOpenButton.disabled = !historyReportSelect.value;
+});
+historyOpenButton.addEventListener('click', openHistoricalReport);
+historyFilter.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const query = historyQuery.value.trim();
+  if (!query) {
+    openModal(historyResultsModal);
+    historyResultsQuery.textContent = '请输入股票代码';
+    historyResultsState.textContent = '请输入股票代码';
+    historyResultsList.innerHTML = '<div class="history-results-empty"><strong>还没有输入股票代码</strong><p>例如：NVDA、600519.SS 或 0700.HK。</p></div>';
+    return;
+  }
+  searchHistoryReports(query);
+});
+historyResultsClose.addEventListener('click', () => closeModal(historyResultsModal));
+historyResultsModal.addEventListener('click', (event) => { if (event.target === historyResultsModal) closeModal(historyResultsModal); });
+
 const modelSettings = document.querySelector('#model-settings');
 const modelProfileSelect = document.querySelector('#model-profile');
 const modelProfileList = document.querySelector('#model-profile-list');
@@ -224,7 +302,7 @@ function populateModelForm(profile) {
 
 function renderModelProfiles() {
   const selected = modelProfileSelect.value;
-  modelProfileSelect.innerHTML = '<option value="">当前系统配置</option>' + modelProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.quick_model)}</option>`).join('');
+  modelProfileSelect.innerHTML = '<option value="">系统默认</option>' + modelProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.quick_model)}</option>`).join('');
   if (modelProfiles.some((profile) => profile.id === selected)) modelProfileSelect.value = selected;
   if (!modelProfiles.length) {
     modelProfileList.innerHTML = '<p class="profile-empty">还没有模型配置。可继续使用当前系统模型，或添加新的第三方 Endpoint。</p>';
@@ -251,13 +329,13 @@ async function loadModelCenter() {
 }
 
 function openModelCenter() {
-  modelSettings.classList.remove('hidden');
-  modelSettings.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  openModal(modelSettings);
   loadModelCenter().catch((error) => { modelProfileList.innerHTML = `<p class="profile-empty">${escapeHtml(error.message)}</p>`; });
 }
 
 document.querySelector('#model-settings-trigger').addEventListener('click', openModelCenter);
-document.querySelector('#model-settings-close').addEventListener('click', () => modelSettings.classList.add('hidden'));
+document.querySelector('#model-settings-close').addEventListener('click', () => closeModal(modelSettings));
+modelSettings.addEventListener('click', (event) => { if (event.target === modelSettings) closeModal(modelSettings); });
 document.querySelector('#new-model-profile').addEventListener('click', resetModelForm);
 
 modelTemplate.addEventListener('change', () => {
@@ -319,6 +397,7 @@ document.querySelector('#delete-model-profile').addEventListener('click', async 
 });
 
 loadModelCenter().catch(() => { modelProfileList.innerHTML = '<p class="profile-empty">模型配置加载失败</p>'; });
+loadHistoryPicker();
 
 function inlineMarkdown(text) {
   return escapeHtml(text)
@@ -387,6 +466,8 @@ function field(fields, name) {
 
 function showReport(record) {
   const result = record.result;
+  currentReportId = result?.report_id || record.id || '';
+  reportDeleteButton.classList.toggle('hidden', !currentReportId);
   document.querySelector('#report-ticker').textContent = record.ticker;
   document.querySelector('#report-date').textContent = `分析日期 ${record.trade_date} · AI 自动生成`;
   document.querySelector('#decision').textContent = result.decision || field(result.decision_fields, 'rating');
@@ -425,9 +506,38 @@ function showReport(record) {
   });
   activate(0);
   processPanel.classList.add('hidden');
-  reportPanel.classList.remove('hidden');
-  reportPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openModal(reportPanel);
+  reportCloseButton.focus();
 }
+
+async function deleteCurrentReport() {
+  if (!currentReportId) return;
+  const ticker = document.querySelector('#report-ticker').textContent;
+  if (!confirm(`确认删除 ${ticker} 的这份研报？删除后无法恢复。`)) return;
+  reportDeleteButton.disabled = true;
+  reportDeleteButton.textContent = '正在删除…';
+  try {
+    const response = await fetch(`/api/reports/${encodeURIComponent(currentReportId)}`, { method: 'DELETE' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || '删除研报失败');
+    closeModal(reportPanel);
+    currentReportId = '';
+    historyReportSelect.value = '';
+    await loadHistoryPicker(historyQuery.value.trim());
+  } catch (error) {
+    reportDeleteButton.textContent = error.message;
+  } finally {
+    reportDeleteButton.disabled = false;
+    if (!reportDeleteButton.textContent.includes('失败')) reportDeleteButton.textContent = '删除研报';
+  }
+}
+
+reportDeleteButton.addEventListener('click', deleteCurrentReport);
+reportCloseButton.addEventListener('click', () => {
+  closeModal(reportPanel);
+  restoreHistoryPickerState();
+});
+reportPanel.addEventListener('click', (event) => { if (event.target === reportPanel) closeModal(reportPanel); });
 
 async function poll(taskId) {
   try {
@@ -491,15 +601,14 @@ form.addEventListener('submit', async (event) => {
 });
 
 document.querySelector('#new-analysis').addEventListener('click', () => {
-  reportPanel.classList.add('hidden');
+  closeModal(reportPanel);
+  restoreHistoryPickerState();
   document.querySelector('#hero').scrollIntoView({ behavior: 'smooth' });
   document.querySelector('#ticker').focus();
 });
 
-document.querySelector('#back-to-history').addEventListener('click', () => {
-  reportPanel.classList.add('hidden');
-  historyCenter.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  loadHistory();
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  const openBackdrop = document.querySelector('.modal-backdrop:not(.hidden)');
+  if (openBackdrop) closeModal(openBackdrop);
 });
-
-loadHistory();

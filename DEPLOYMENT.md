@@ -87,11 +87,20 @@ docker image prune -f
 ```bash
 docker compose logs -f --tail=200
 docker compose logs -f --tail=200 news-worker
+docker compose logs --since 72h tradingagents
 docker compose restart
 docker compose down
 ```
 
 持久数据保存在 Docker 卷 `tradingagents_data` 中。普通更新或重新构建镜像不会删除该卷。
+
+## 日志策略
+
+- 容器关闭了 Uvicorn access log，因此 Docker 日志不会持续输出 `/health`、`/metrics`、静态文件等探活和轮询请求；业务操作仍通过应用日志记录。
+- Web 和 Worker 的应用日志写入 `/data/runtime-logs/web` 与 `/data/runtime-logs/news-worker`，按天轮转并只保留最近 3 天；旧文件会在进程启动和写入日志时清理。
+- Docker 的 `json-file` 日志仍设置了单文件 10 MB、最多 3 个文件，作为容量上限和临时排障入口。它是按大小而不是按时间轮转，查看实时日志使用 `docker compose logs`。
+- 运行日志与研报分离：`/data/logs` 是研报和状态产物目录，不会因为运行日志轮转而自动删除。资讯数据库仍按 `NEWS_RETENTION_DAYS`（默认 90 天）清理。
+- 日常日志级别为 `INFO`；`DEBUG` 只在临时排障时启用。不会记录 API Key、完整提示词或完整模型回复。
 
 # AI 资讯模块
 
@@ -103,7 +112,7 @@ docker compose down
 
 ```bash
 # 终端 1：Web 服务（含 /news 页面与只读 API）
-uv run uvicorn web.app:app --host 127.0.0.1 --port 5000
+uv run uvicorn web.app:app --host 127.0.0.1 --port 5000 --no-access-log
 
 # 终端 2：采集 Worker（启动立即抓一次，此后每 15 分钟一轮）
 uv run python -m web.news_worker

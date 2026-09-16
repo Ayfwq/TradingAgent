@@ -7,59 +7,52 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-SavePathType = Annotated[str, "File path to save data. If None, data is not saved."]
+SavePathType = Annotated[str, "保存数据的文件路径；为 None 时不保存数据。"]
 
-# Tickers can contain letters, digits, dot, dash, underscore, caret
-# (index symbols like ^GSPC), equals (futures like GC=F), and plus
-# (forex/CFD symbols like XAUUSD+). None of these enable directory
-# traversal, so the value never escapes a containing directory when
-# interpolated into a path. Anything else is rejected.
+# 股票代码可以包含字母、数字、点号、短横线、下划线、脱字符（如 ^GSPC）、
+# 等号（如 GC=F）和加号（如 XAUUSD+）。这些字符都不能启用目录遍历，因此插入
+# 路径时不会逃逸出所在目录；其他字符一律拒绝。
 _TICKER_PATH_RE = re.compile(r"^[A-Za-z0-9._\-\^=+]+$")
 
 
 def safe_ticker_component(value: str, *, max_len: int = 32) -> str:
-    """Validate ``value`` is safe to interpolate into a filesystem path.
+    """校验将 ``value`` 插入文件系统路径是否安全。
 
-    Tickers come from user CLI input or from LLM tool calls, both of which
-    can be influenced by attacker-controlled content (e.g. prompt injection
-    embedded in fetched news). Without validation, a value like
-    ``"../../../etc/foo"`` flows into ``os.path.join`` / ``Path /`` and
-    escapes the configured cache, checkpoint, or results directory.
+    股票代码来自用户输入或 LLM 工具调用，两者都可能受到攻击者控制的内容
+    影响（例如嵌入获取新闻中的提示词注入）。如果不校验，类似 ``"../../../etc/foo"``
+    的值会流入 ``os.path.join`` / ``Path /``，逃逸出配置的缓存、检查点或结果目录。
 
-    Returns ``value`` unchanged when it matches the allowed pattern; raises
-    ``ValueError`` otherwise.
+    匹配允许模式时原样返回 ``value``，否则抛出 ``ValueError``。
     """
-    logger.debug("safe_ticker_component called for %r max_len=%d", value, max_len)
+    logger.debug("已调用 safe_ticker_component：value=%r，max_len=%d", value, max_len)
     if not isinstance(value, str) or not value:
-        logger.warning("ticker must be a non-empty string, got %r", value)
-        raise ValueError(f"ticker must be a non-empty string, got {value!r}")
+        logger.warning("股票代码必须是非空字符串，实际为 %r", value)
+        raise ValueError(f"股票代码必须是非空字符串，实际为 {value!r}")
     if len(value) > max_len:
-        logger.warning("ticker %r exceeds %d chars", value, max_len)
-        raise ValueError(f"ticker exceeds {max_len} chars: {value!r}")
+        logger.warning("股票代码 %r 超过 %d 个字符", value, max_len)
+        raise ValueError(f"股票代码超过 {max_len} 个字符：{value!r}")
     if not _TICKER_PATH_RE.fullmatch(value):
-        logger.warning("ticker %r contains characters not allowed in a filesystem path", value)
+        logger.warning("股票代码 %r 包含文件系统路径不允许的字符", value)
         raise ValueError(
-            f"ticker contains characters not allowed in a filesystem path: {value!r}"
+            f"股票代码包含文件系统路径不允许的字符：{value!r}"
         )
-    # The regex above allows '.', so values like '.', '..', '...' would pass,
-    # and as a path component they traverse the parent directory. Reject any
-    # value that's only dots.
+    # 上面的正则允许 '.', 因此 '.', '..', '...' 等值会通过，但作为路径组件会
+    # 遍历到父目录。拒绝只包含点号的值。
     if set(value) == {"."}:
-        logger.warning("ticker %r cannot consist solely of dots", value)
-        raise ValueError(f"ticker cannot consist solely of dots: {value!r}")
+        logger.warning("股票代码 %r 不能只由点号组成", value)
+        raise ValueError(f"股票代码不能只由点号组成：{value!r}")
     return value
 
 
 def save_output(data: pd.DataFrame, tag: str, save_path: SavePathType = None) -> None:
-    logger.debug("save_output called for tag=%s save_path=%s", tag, save_path)
+    logger.debug("已调用 save_output：tag=%s，save_path=%s", tag, save_path)
     if save_path:
         data.to_csv(save_path, encoding="utf-8")
-        logger.debug("%s saved to %s", tag, save_path)
-        print(f"{tag} saved to {save_path}")
+        logger.debug("%s 已保存到 %s", tag, save_path)
 
 
 def get_current_date():
-    logger.debug("get_current_date called")
+    logger.debug("已调用 get_current_date")
     return date.today().strftime("%Y-%m-%d")
 
 
@@ -74,7 +67,7 @@ def decorate_all_methods(decorator):
 
 
 def get_next_weekday(date):
-    logger.debug("get_next_weekday called for %s", date)
+    logger.debug("已调用 get_next_weekday：%s", date)
     if not isinstance(date, datetime):
         date = datetime.strptime(date, "%Y-%m-%d")
 

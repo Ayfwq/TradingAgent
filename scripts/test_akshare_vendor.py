@@ -1,11 +1,10 @@
-"""Tool-level integration test for the akshare vendor.
+"""akshare 供应商的工具级集成测试。
 
-Exercises every data tool through the framework's vendor router exactly as
-the agents would call them (TradingAgentsGraph applies TRADINGAGENTS_DATA_VENDORS
-from .env at init). Uses A-share ticker 600519.SS (Kweichow Moutai) and US
-NVDA where supported.
+通过框架供应商路由器执行每个数据工具，调用路径与智能体完全一致
+（TradingAgentsGraph 初始化时会应用 .env 中的 TRADINGAGENTS_DATA_VENDORS）。
+使用 A 股代码 600519.SS（贵州茅台），并在支持的地方测试美股 NVDA。
 
-Usage:  uv run python scripts/test_akshare_vendor.py
+用法：uv run python scripts/test_akshare_vendor.py
 """
 
 import tradingagents  # noqa: F401  (loads .env + NO_PROXY)
@@ -25,13 +24,13 @@ from tradingagents.agents.utils.agent_utils import (
 )
 from tradingagents.dataflows.config import get_config, set_config
 
-# Mirror what TradingAgentsGraph does at init.
+# 对照 TradingAgentsGraph 初始化时执行的逻辑。
 from tradingagents.default_config import DEFAULT_CONFIG, apply_data_vendors_env
 
 set_config(apply_data_vendors_env(DEFAULT_CONFIG.copy()))
 
 cfg = get_config()
-print("=== data_vendors ===")
+print("=== 数据供应商 ===")
 for k, v in cfg["data_vendors"].items():
     print(f"  {k}: {v}")
 
@@ -93,4 +92,4 @@ out = get_stock_data.invoke({"symbol": "NVDA", "start_date": "2024-01-02", "end_
 print(out[:400])
 print("...\n[length]", len(out))
 
-print("\nALL TOOL TESTS DONE")
+print("\n所有工具测试完成")

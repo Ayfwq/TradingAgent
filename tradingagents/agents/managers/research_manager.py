@@ -1,4 +1,4 @@
-"""Research Manager: turns the bull/bear debate into a structured investment plan for the trader."""
+"""研究经理：将看多/看空辩论转化为交易员可执行的结构化投资计划。"""
 
 from __future__ import annotations
 
@@ -26,26 +26,26 @@ def create_research_manager(llm):
         history = state["investment_debate_state"].get("history", "")
 
         investment_debate_state = state["investment_debate_state"]
-        logger.debug("Research Manager invoked: ticker=%s", state.get("company_of_interest"))
+        logger.debug("研究经理调用：代码=%s", state.get("company_of_interest"))
 
-        prompt = f"""As the Research Manager and debate facilitator, your role is to critically evaluate this round of debate and deliver a clear, actionable investment plan for the trader.
+        prompt = f"""作为研究经理和辩论主持人，你需要批判性评估本轮辩论，并为交易员给出清晰、可执行的投资计划。
 
 {instrument_context}
 
 ---
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction in the bull thesis; recommend taking or growing the position
-- **Overweight**: Constructive view; recommend gradually increasing exposure
-- **Hold**: Balanced view; recommend maintaining the current position
-- **Underweight**: Cautious view; recommend trimming exposure
-- **Sell**: Strong conviction in the bear thesis; recommend exiting or avoiding the position
+**评级尺度**（必须且只能选择一个）：
+- **Buy**：强烈认同看多逻辑，建议建仓或增加仓位
+- **Overweight**：观点积极，建议逐步增加敞口
+- **Hold**：观点均衡，建议维持当前仓位
+- **Underweight**：观点谨慎，建议减少敞口
+- **Sell**：强烈认同看空逻辑，建议退出或避免持仓
 
-Commit to a clear stance whenever the debate's strongest arguments warrant one; reserve Hold for situations where the evidence on both sides is genuinely balanced.
+当辩论中最有力的论据支持明确方向时，必须给出明确立场；只有双方证据确实均衡时才使用 Hold。
 
 ---
 
-**Debate History:**
+**辩论历史：**
 {history}
 
 {NO_EXTERNAL_TOOLS}""" + get_language_instruction()
@@ -58,9 +58,9 @@ Commit to a clear stance whenever the debate's strongest arguments warrant one; 
                 render_research_plan,
                 "Research Manager",
             )
-            logger.debug("Research Manager LLM call completed: output_length=%d", len(investment_plan))
+            logger.debug("研究经理 LLM 调用完成：输出长度=%d", len(investment_plan))
         except Exception as exc:
-            logger.exception("Research Manager LLM call failed: %s", exc)
+            logger.exception("研究经理 LLM 调用失败：%s", exc)
             raise
 
         new_investment_debate_state = {
@@ -72,7 +72,7 @@ Commit to a clear stance whenever the debate's strongest arguments warrant one; 
             "count": investment_debate_state["count"],
         }
 
-        logger.debug("Research Manager node return: output_length=%d", len(investment_plan))
+        logger.debug("研究经理节点返回：输出长度=%d", len(investment_plan))
 
         return {
             "investment_debate_state": new_investment_debate_state,

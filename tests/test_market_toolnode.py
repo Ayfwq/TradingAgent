@@ -14,7 +14,10 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 def test_market_toolnode_can_execute_verified_snapshot():
     # _create_tool_nodes does not use self -> call unbound (avoids building LLMs).
     nodes = TradingAgentsGraph._create_tool_nodes(None)
-    market_tools = set(nodes["market"].tools_by_name)
+    node = nodes["market"]
+    market_tools = set(
+        getattr(node, "tools_by_name", getattr(node, "_tools_by_name", {}))
+    )
     assert "get_verified_market_snapshot" in market_tools, (
         "get_verified_market_snapshot is bound to the market analyst but not "
         "registered in the market ToolNode, so the model's call fails."

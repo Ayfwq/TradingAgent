@@ -1,4 +1,4 @@
-# TradingAgents/graph/propagation.py
+# TradingAgents/graph/propagation.py：状态传播。
 
 import logging
 from typing import Any
@@ -12,12 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 class Propagator:
-    """Handles state initialization and propagation through the graph."""
+    """处理图中的状态初始化和传播。"""
 
     def __init__(self, max_recur_limit=100):
-        """Initialize with configuration parameters."""
+        """使用配置参数初始化。"""
         self.max_recur_limit = max_recur_limit
-        logger.debug("Propagator initialized with max_recur_limit=%d", max_recur_limit)
+        logger.debug("传播器已初始化，max_recur_limit=%d", max_recur_limit)
 
     def create_initial_state(
         self,
@@ -27,30 +27,26 @@ class Propagator:
         past_context: str = "",
         instrument_context: str = "",
     ) -> dict[str, Any]:
-        """Create the initial state for the agent graph.
+        """创建 Agent 图的初始状态。
 
-        ``instrument_context`` is the deterministic ticker-identity string
-        resolved once at run start (see
-        ``TradingAgentsGraph.resolve_instrument_context``). When empty, agents
-        fall back to ticker-only context via
-        ``get_instrument_context_from_state``.
+        ``instrument_context`` 是运行开始时解析一次的确定性股票身份字符串（参见
+        ``TradingAgentsGraph.resolve_instrument_context``）。为空时，Agent 通过
+        ``get_instrument_context_from_state`` 回退到仅包含股票代码的上下文。
         """
         logger.debug(
-            "Creating initial state: company=%s date=%s asset_type=%s "
-            "past_context=%d chars instrument_context=%d chars",
+            "创建初始状态：公司=%s 日期=%s 资产类型=%s 历史上下文=%d 字符 标的上下文=%d 字符",
             company_name, trade_date, asset_type,
             len(past_context or ""), len(instrument_context or ""),
         )
         return {
             "messages": [("human", company_name)],
-            # Per-analyst scratch channels (analysts run concurrently; each
-            # starts from the same anchored prompt).
+            # 每位分析师的临时通道（分析师并发运行，每位都从同一个已绑定标的的
+            # 提示词开始）。
             "market_messages": [("human", company_name)],
             "sentiment_messages": [("human", company_name)],
             "news_messages": [("human", company_name)],
             "fundamentals_messages": [("human", company_name)],
-            # Analyst finished-markers (written by each clear node; the
-            # Analyst Barrier reads them).
+            # 分析师完成标记（由各自的清理节点写入，分析师屏障读取）。
             "market_done": False,
             "sentiment_done": False,
             "news_done": False,
@@ -91,11 +87,11 @@ class Propagator:
         }
 
     def get_graph_args(self, callbacks: list | None = None) -> dict[str, Any]:
-        """Get arguments for the graph invocation.
+        """获取调用图所需的参数。
 
         Args:
-            callbacks: Optional list of callback handlers for tool execution tracking.
-                       Note: LLM callbacks are handled separately via LLM constructor.
+            callbacks：可选的回调处理器列表，用于跟踪工具执行。
+                       注意：LLM 回调由 LLM 构造器单独处理。
         """
         config = {"recursion_limit": self.max_recur_limit}
         if callbacks:

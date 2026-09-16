@@ -31,6 +31,8 @@ FROM ac2-registry.cn-hangzhou.cr.aliyuncs.com/ac2/base:ubuntu24.04-py312 AS runt
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/app/.venv/bin:$PATH" \
+    TRADINGAGENTS_LOG_DIR=/data/runtime-logs \
+    TRADINGAGENTS_LOG_RETENTION_DAYS=3 \
     TRADINGAGENTS_RESULTS_DIR=/data/logs \
     TRADINGAGENTS_CACHE_DIR=/data/cache \
     TRADINGAGENTS_MEMORY_LOG_PATH=/data/memory/trading_memory.md \
@@ -49,4 +51,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
 
-CMD ["uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers"]
+CMD ["uvicorn", "web.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--no-access-log"]

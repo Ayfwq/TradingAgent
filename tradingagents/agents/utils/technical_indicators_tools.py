@@ -10,26 +10,25 @@ logger = logging.getLogger(__name__)
 
 @tool
 def get_indicators(
-    symbol: Annotated[str, "ticker symbol of the company"],
-    indicator: Annotated[str, "technical indicator to get the analysis and report of"],
-    curr_date: Annotated[str, "The current trading date you are trading on, YYYY-mm-dd"],
-    look_back_days: Annotated[int, "how many days to look back"] = 30,
+    symbol: Annotated[str, "公司股票代码"],
+    indicator: Annotated[str, "要分析并生成报告的技术指标"],
+    curr_date: Annotated[str, "当前交易日期，格式为 YYYY-mm-dd"],
+    look_back_days: Annotated[int, "向前回看的天数"] = 30,
 ) -> str:
     """
-    Retrieve a single technical indicator for a given ticker symbol.
-    Uses the configured technical_indicators vendor.
-    Args:
-        symbol (str): Ticker symbol of the company, e.g. AAPL, TSM
-        indicator (str): A single technical indicator name, e.g. 'rsi', 'macd'. Call this tool once per indicator.
-        curr_date (str): The current trading date you are trading on, YYYY-mm-dd
-        look_back_days (int): How many days to look back, default is 30
-    Returns:
-        str: A formatted dataframe containing the technical indicators for the specified ticker symbol and indicator.
+    获取指定股票代码的单个技术指标。
+    使用配置的 technical_indicators 数据供应商。
+    参数：
+        symbol (str)：公司股票代码，例如 AAPL、TSM
+        indicator (str)：单个技术指标名称，例如 'rsi'、'macd'。每个指标调用一次工具。
+        curr_date (str)：当前交易日期，格式为 YYYY-mm-dd
+        look_back_days (int)：向前回看的天数，默认为 30
+    返回：
+        str：包含指定代码和指标技术数据的格式化数据表。
     """
-    # LLMs sometimes pass multiple indicators as a comma-separated string;
-    # split and process each individually.
+    # LLM 有时会把多个指标作为逗号分隔字符串传入，因此拆分后逐个处理。
     logger.debug(
-        "get_indicators called: symbol=%s, indicator=%s, curr_date=%s, look_back_days=%s",
+        "调用 get_indicators：代码=%s，指标=%s，当前日期=%s，回看天数=%s",
         symbol, indicator, curr_date, look_back_days,
     )
     indicators = [i.strip().lower() for i in indicator.split(",") if i.strip()]
@@ -37,10 +36,10 @@ def get_indicators(
     for ind in indicators:
         try:
             result = route_to_vendor("get_indicators", symbol, ind, curr_date, look_back_days)
-            logger.debug("get_indicators returned %d chars for %s / %s", len(result), symbol, ind)
+            logger.debug("get_indicators 返回 %d 个字符：%s / %s", len(result), symbol, ind)
             results.append(result)
         except ValueError as e:
-            logger.exception("get_indicators failed for %s / %s", symbol, ind)
+            logger.exception("get_indicators 失败：%s / %s", symbol, ind)
             results.append(str(e))
-    logger.debug("get_indicators aggregated %d result blocks for %s", len(results), symbol)
+    logger.debug("get_indicators 为 %s 汇总了 %d 个结果区块", symbol, len(results))
     return "\n\n".join(results)

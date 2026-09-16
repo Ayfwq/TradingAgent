@@ -1,16 +1,16 @@
-"""Persistent report history backed by the report tree on disk.
+"""由磁盘报告目录支持的持久化报告历史。
 
-The analysis worker already writes every completed run under
+分析 Worker 已将每次完成的运行写入
 ``<results_dir>/reports/<ticker>_<timestamp>``.  This module indexes those
-directories on demand instead of keeping a second in-memory database, so old
-reports remain available after a web-server restart and existing reports are
-discovered automatically.
+本模块按需为这些目录建立索引，而不是维护第二个内存数据库，因此 Web 服务器重启后
+旧报告仍可用，已有报告也会自动发现。
 """
 
 from __future__ import annotations
 
 import json
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -159,3 +159,17 @@ def get_report(report_id: str) -> dict[str, Any] | None:
             "risk": {key: _read(directory / path) for key, path in _RISK_FILES.items()},
         },
     }
+
+
+def delete_report(report_id: str) -> bool:
+    """Delete one complete report directory after validating its exact path."""
+    if not _REPORT_ID_RE.fullmatch(report_id):
+        return False
+    root = reports_root().resolve()
+    directory = (root / report_id).resolve()
+    if directory.parent != root or not directory.is_dir():
+        return False
+    if not (directory / "complete_report.md").is_file():
+        return False
+    shutil.rmtree(directory)
+    return True

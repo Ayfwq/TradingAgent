@@ -55,11 +55,10 @@ class _CacheEntry:
 
 
 class InstrumentSearchService:
-    """Resolve descriptions to tickers, with a market directory as truth.
+    """将描述解析为股票代码，并以市场目录作为事实来源。
 
-    The configured quick model only expands natural-language descriptions into
-    lookup terms. A model suggestion is never returned until Sina's security
-    directory confirms the listing.
+    配置的快速模型只负责将自然语言描述扩展为查询词。只有新浪证券目录确认该上市
+    标的后，才会返回模型建议。
     """
 
     def __init__(self, cache_ttl_seconds: int = 900):
@@ -98,7 +97,7 @@ class InstrumentSearchService:
             except Exception as exc:  # noqa: BLE001
                 ai_available = False
                 ai_message = "AI 描述理解暂不可用，已保留证券目录的直接搜索结果。"
-                logger.warning("Instrument search AI expansion unavailable: %s", exc)
+                logger.warning("标的搜索 AI 扩展不可用：%s", exc)
                 expansions = []
 
             for index, term in enumerate(expansions):
@@ -107,9 +106,8 @@ class InstrumentSearchService:
                 matches = self._directory_search(term, market)
                 ranked.extend(self._rank(query, matches, "ai", term, index))
 
-        # Keep this invariant at the final boundary as well as in the Sina
-        # parser.  It protects against future directory formats and against
-        # an AI expansion path accidentally contributing a cross-market row.
+        # 在最终边界也保持此不变量，与 Sina 解析器中的规则一致。
+        # 这样可以防止未来目录格式变化，也能避免 AI 扩展路径意外贡献跨市场条目。
         results = [
             item
             for item in self._deduplicate_and_sort(ranked)
@@ -146,7 +144,7 @@ class InstrumentSearchService:
         with self._cache_lock:
             entry = self._cache.get(key)
             if entry and entry.expires_at > now:
-                logger.debug("Directory cache hit for %r (%s)", query, market)
+                logger.debug("命中目录缓存：%r（%s）", query, market)
                 return entry.value
 
         try:
@@ -158,11 +156,11 @@ class InstrumentSearchService:
             )
             response.raise_for_status()
         except requests.RequestException:
-            logger.warning("Sina directory request failed for %r (%s)", query, market)
+            logger.warning("Sina 目录请求失败：%r（%s）", query, market)
             raise
         response.encoding = "gbk"
         parsed = self._parse_sina_response(response.text, market)
-        logger.debug("Sina directory returned %d row(s) for %r (%s)", len(parsed), query, market)
+        logger.debug("Sina 目录为 %r（%s）返回 %d 行", query, market, len(parsed))
         with self._cache_lock:
             self._cache[key] = _CacheEntry(now + self.cache_ttl_seconds, parsed)
         return parsed
@@ -253,9 +251,8 @@ class InstrumentSearchService:
             else:
                 score = 80 - expansion_index * 4 - position
             if mode == "direct" and position == 0:
-                # Sina already ranks its own exact/security-name matches. Keep
-                # that signal so an English query such as NVIDIA returns NVDA
-                # before ETFs whose longer names merely contain "Nvidia".
+        # Sina 已经为精确匹配和证券名称匹配排序。保留该信号，使 NVIDIA 这样的
+        # 英文查询优先返回 NVDA，而不是返回名称中仅包含“Nvidia”的 ETF。
                 score = max(score, 98)
             reason = (
                 "公司名称或股票代码与输入直接匹配"
@@ -339,7 +336,7 @@ class InstrumentSearchService:
             value = " ".join(str(item).strip().split())[:40]
             if value and value not in cleaned:
                 cleaned.append(value)
-        logger.debug("Model expansion produced %d term(s) for %r", len(cleaned[:5]), query)
+        logger.debug("模型扩展为 %r 生成 %d 个词条", query, len(cleaned[:5]))
         return cleaned[:5]
 
 

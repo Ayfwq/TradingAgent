@@ -1,18 +1,17 @@
-"""Vendor data-error taxonomy.
+"""供应商数据错误分类。
 
-A single hierarchy so the routing layer reacts by *behavior*, not by vendor:
-every condition where a vendor cannot return usable data derives from
-``VendorError``, and the router catches the base types. A new vendor raises
-these (or a thin vendor-named subclass) and needs no new ``except`` clause.
+使用统一层级，使路由层按行为而不是按供应商处理错误：供应商无法返回可用数据
+的所有情况都派生自 ``VendorError``，路由器捕获基类即可。新供应商抛出这些异常
+（或定义一个简单的供应商专属子类）即可，无需增加新的 ``except`` 分支。
 
     VendorError
-    ├── NoMarketDataError          no usable rows (empty result OR stale data)
-    ├── VendorRateLimitError       transient throttle -> skip to next vendor
-    └── VendorNotConfiguredError   missing API key/config -> vendor unavailable
+    ├── NoMarketDataError          没有可用行（空结果或数据过期）
+    ├── VendorRateLimitError       临时限流 -> 跳过并尝试下一个供应商
+    └── VendorNotConfiguredError   缺少 API key/配置 -> 供应商不可用
 
-The number of types is the number of distinct router reactions, not the number
-of human-describable causes: empty and stale data get identical handling, so
-they share ``NoMarketDataError`` and differ only in the free-text ``detail``.
+异常类型数量对应路由器的不同处理方式，而不是人类可描述原因的数量：空数据和
+过期数据处理方式相同，因此共用 ``NoMarketDataError``，只在自由文本 ``detail``
+中区分。
 """
 
 from __future__ import annotations
@@ -23,38 +22,36 @@ logger = logging.getLogger(__name__)
 
 
 class VendorError(Exception):
-    """Base for any condition where a vendor could not return usable data."""
+    """供应商无法返回可用数据时使用的异常基类。"""
 
 
 class NoMarketDataError(VendorError):
-    """A vendor returned no usable rows for a symbol (empty result or stale data).
+    """供应商没有为代码返回可用行（结果为空或数据过期）。
 
-    Carries both the symbol the user requested and the canonical symbol the
-    vendor was actually queried with, plus a free-text ``detail``, so callers
-    can build a clear message instead of emitting a vendor-specific empty
-    string into the data channel.
+    携带用户请求的代码、实际查询的规范代码以及自由文本 ``detail``，让调用方
+    可以构建清晰消息，而不是将供应商专属的空字符串写入数据通道。
     """
 
     def __init__(self, symbol: str, canonical: str | None = None, detail: str = ""):
         self.symbol = symbol
         self.canonical = canonical or symbol
         self.detail = detail
-        msg = f"No market data for {symbol!r}"
+        msg = f"没有 {symbol!r} 的市场数据"
         if canonical and canonical != symbol:
-            msg += f" (queried as {canonical!r})"
+            msg += f"（实际查询代码为 {canonical!r}）"
         if detail:
             msg += f": {detail}"
-        logger.warning("NoMarketDataError raised for %s (canonical %s): %s", symbol, self.canonical, self.detail)
+        logger.warning("为 %s（规范代码 %s）抛出 NoMarketDataError：%s", symbol, self.canonical, self.detail)
         super().__init__(msg)
 
 
 class VendorRateLimitError(VendorError):
-    """A vendor throttled the request; the router skips to the next vendor."""
+    """供应商对请求限流；路由器跳过并尝试下一个供应商。"""
 
 
 class VendorNotConfiguredError(VendorError, ValueError):
-    """A vendor was selected but its API key/configuration is missing.
+    """已选择供应商，但缺少其 API key 或配置。
 
-    Also a ``ValueError`` so existing callers that catch ``ValueError`` keep
-    working while the routing layer can treat it as "vendor unavailable".
+    同时继承 ``ValueError``，使捕获 ``ValueError`` 的现有调用方继续工作，而
+    路由层可以将其视为“供应商不可用”。
     """

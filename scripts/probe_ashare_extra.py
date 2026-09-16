@@ -1,11 +1,10 @@
-"""Probe akshare A-share special-data interfaces for availability.
+"""探测 akshare A 股特色数据接口是否可用。
 
-Checks the endpoints used by the A-share enhancement tools (LHB/龙虎榜,
-northbound flow/北向资金, margin/两融, earnings forecast/业绩预告,
-dividends/分红). Prints OK/FAIL + columns + row count per interface.
-Network probe — run manually, not part of CI.
+检查 A 股增强工具使用的端点（LHB/龙虎榜、northbound flow/北向资金、
+margin/两融、earnings forecast/业绩预告、dividends/分红），为每个接口
+打印成功/失败状态、列名和行数。这是网络探测脚本，请手动运行，不属于 CI。
 
-Usage:  uv run --quiet python scripts/probe_ashare_extra.py
+用法：uv run --quiet python scripts/probe_ashare_extra.py
 """
 
 from __future__ import annotations
@@ -20,18 +19,18 @@ def probe(name: str, func) -> None:
     try:
         df = func()
         if df is None:
-            print(f"{name}: OK (None)")
+            print(f"{name}：正常（None）")
             return
-        print(f"{name}: OK rows={len(df)} cols={list(df.columns)[:12]}")
+        print(f"{name}：正常 行数={len(df)} 列={list(df.columns)[:12]}")
         if len(df):
-            print(f"   head0: {df.iloc[0].to_dict()}")
+            print(f"   首行：{df.iloc[0].to_dict()}")
     except Exception as exc:  # noqa: BLE001
-        print(f"{name}: FAIL {type(exc).__name__}: {str(exc)[:160]}")
+        print(f"{name}：失败 {type(exc).__name__}：{str(exc)[:160]}")
 
 
 def main() -> None:
     today = datetime.now().strftime("%Y%m%d")
-    print(f"today={today}\n")
+    print(f"今天={today}\n")
 
     probe("stock_lhb_detail_em(龙虎榜)", lambda: ak.stock_lhb_detail_em(date=today))
     probe("stock_lhb_stock_detail_em(个股龙虎榜)", lambda: ak.stock_lhb_stock_detail_em(symbol="600519", date=today))

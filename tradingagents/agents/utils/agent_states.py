@@ -8,97 +8,95 @@ from typing_extensions import TypedDict
 logger = logging.getLogger(__name__)
 
 
-# Researcher team state
+# 研究团队状态
 class InvestDebateState(TypedDict):
     bull_history: Annotated[
-        str, "Bullish Conversation history"
-    ]  # Bullish Conversation history
+        str, "看多方对话历史"
+    ]  # 看多方对话历史
     bear_history: Annotated[
-        str, "Bearish Conversation history"
-    ]  # Bullish Conversation history
-    history: Annotated[str, "Conversation history"]  # Conversation history
-    current_response: Annotated[str, "Latest response"]  # Last response
-    judge_decision: Annotated[str, "Final judge decision"]  # Last response
-    count: Annotated[int, "Length of the current conversation"]  # Conversation length
+        str, "看空方对话历史"
+    ]  # 看空方对话历史
+    history: Annotated[str, "对话历史"]  # 对话历史
+    current_response: Annotated[str, "最新回复"]  # 最新回复
+    judge_decision: Annotated[str, "最终裁判决策"]  # 最新回复
+    count: Annotated[int, "当前对话长度"]  # 对话长度
 
 
-# Risk management team state
+# 风险管理团队状态
 class RiskDebateState(TypedDict):
     aggressive_history: Annotated[
-        str, "Aggressive Agent's Conversation history"
-    ]  # Conversation history
+        str, "激进智能体的对话历史"
+    ]  # 对话历史
     conservative_history: Annotated[
-        str, "Conservative Agent's Conversation history"
-    ]  # Conversation history
+        str, "保守智能体的对话历史"
+    ]  # 对话历史
     neutral_history: Annotated[
-        str, "Neutral Agent's Conversation history"
-    ]  # Conversation history
-    history: Annotated[str, "Conversation history"]  # Conversation history
-    latest_speaker: Annotated[str, "Analyst that spoke last"]
+        str, "中性智能体的对话历史"
+    ]  # 对话历史
+    history: Annotated[str, "对话历史"]  # 对话历史
+    latest_speaker: Annotated[str, "最近发言的分析师"]
     current_aggressive_response: Annotated[
-        str, "Latest response by the aggressive analyst"
-    ]  # Last response
+        str, "激进分析师的最新回复"
+    ]  # 最新回复
     current_conservative_response: Annotated[
-        str, "Latest response by the conservative analyst"
-    ]  # Last response
+        str, "保守分析师的最新回复"
+    ]  # 最新回复
     current_neutral_response: Annotated[
-        str, "Latest response by the neutral analyst"
-    ]  # Last response
-    judge_decision: Annotated[str, "Judge's decision"]
-    count: Annotated[int, "Length of the current conversation"]  # Conversation length
+        str, "中性分析师的最新回复"
+    ]  # 最新回复
+    judge_decision: Annotated[str, "裁判决策"]
+    count: Annotated[int, "当前对话长度"]  # 对话长度
 
 
 class AgentState(MessagesState):
-    company_of_interest: Annotated[str, "Company that we are interested in trading"]
-    asset_type: Annotated[str, "Asset type under analysis such as stock or crypto"]
-    instrument_context: Annotated[str, "Deterministic ticker identity resolved at run start"]
-    trade_date: Annotated[str, "What date we are trading at"]
+    company_of_interest: Annotated[str, "正在交易的目标公司"]
+    asset_type: Annotated[str, "正在分析的资产类型，例如股票或加密货币"]
+    instrument_context: Annotated[str, "运行开始时确定性解析出的代码身份"]
+    trade_date: Annotated[str, "交易日期"]
 
-    sender: Annotated[str, "Agent that sent this message"]
+    sender: Annotated[str, "发送此消息的智能体"]
 
-    # Per-analyst message channels. The analysts run CONCURRENTLY (fan-out),
-    # so each one owns its own scratch messages instead of sharing the global
-    # ``messages`` list — otherwise their tool-call turns would interleave in
-    # the shared history and pollute each other's context (#parallel-analysts).
-    # The shared ``messages`` channel stays for the sequential stages that
-    # follow the analysts (debate / trader / risk) and for back-compat.
+    # 每个分析师拥有独立的消息通道。分析师会并发运行（扇出），因此各自使用
+    # 临时消息，而不是共享全局的 ``messages`` 列表；否则工具调用轮次会在
+    # 共享历史中交错，污染彼此的上下文（#parallel-analysts）。
+    # 共享的 ``messages`` 通道保留给分析师之后的顺序阶段（辩论 / 交易员 /
+    # 风险管理），同时用于向后兼容。
     market_messages: Annotated[list, add_messages]
     sentiment_messages: Annotated[list, add_messages]
     news_messages: Annotated[list, add_messages]
     fundamentals_messages: Annotated[list, add_messages]
 
-    # Analyst "finished" markers written by each analyst's clear node. The
-    # Analyst Barrier uses them to distinguish "analyst done but produced an
-    # empty report" (rare LLM failure — debate should proceed with the
-    # remaining reports) from "analyst still running" (barrier must wait).
-    market_done: Annotated[bool, "Market analyst finished"]
-    sentiment_done: Annotated[bool, "Sentiment analyst finished"]
-    news_done: Annotated[bool, "News analyst finished"]
-    fundamentals_done: Annotated[bool, "Fundamentals analyst finished"]
+    # 每个分析师的清理节点写入“已完成”标记。分析师屏障据此区分“分析师已完成
+    # 但产生了空报告”（少见的 LLM 失败，辩论应继续使用剩余报告）和“分析师
+    # 仍在运行”（屏障必须等待）。
+    market_done: Annotated[bool, "市场分析师已完成"]
+    sentiment_done: Annotated[bool, "情绪分析师已完成"]
+    news_done: Annotated[bool, "新闻分析师已完成"]
+    fundamentals_done: Annotated[bool, "基本面分析师已完成"]
 
-    # research step
-    market_report: Annotated[str, "Report from the Market Analyst"]
-    sentiment_report: Annotated[str, "Report from the Sentiment Analyst"]
+    # 研究步骤
+    market_report: Annotated[str, "市场分析师报告"]
+    sentiment_report: Annotated[str, "情绪分析师报告"]
     news_report: Annotated[
-        str, "Report from the News Researcher of current world affairs"
+        str, "新闻研究员关于当前世界局势的报告"
     ]
-    fundamentals_report: Annotated[str, "Report from the Fundamentals Researcher"]
+    fundamentals_report: Annotated[str, "基本面研究员报告"]
 
-    # researcher team discussion step
+    # 研究团队讨论步骤
     investment_debate_state: Annotated[
-        InvestDebateState, "Current state of the debate on if to invest or not"
+        InvestDebateState, "当前是否投资的辩论状态"
     ]
-    investment_plan: Annotated[str, "Plan generated by the Analyst"]
+    investment_plan: Annotated[str, "分析师生成的计划"]
 
-    trader_investment_plan: Annotated[str, "Plan generated by the Trader"]
+    trader_investment_plan: Annotated[str, "交易员生成的计划"]
 
-    # risk management team discussion step
+    # 风险管理团队讨论步骤
     risk_debate_state: Annotated[
-        RiskDebateState, "Current state of the debate on evaluating risk"
+        RiskDebateState, "当前风险评估辩论状态"
     ]
-    final_trade_decision: Annotated[str, "Final decision made by the Risk Analysts"]
-    past_context: Annotated[str, "Memory log context injected at run start (same-ticker decisions + cross-ticker lessons)"]
+    final_trade_decision: Annotated[str, "风险分析师作出的最终决策"]
+    past_context: Annotated[str, "运行开始时注入的记忆日志上下文（同股票决策和其他股票经验）"]
 
 logger.debug(
-    "Agent state schemas loaded: InvestDebateState, RiskDebateState, AgentState"
+    "已加载智能体状态模式：InvestDebateState、RiskDebateState、AgentState"
 )

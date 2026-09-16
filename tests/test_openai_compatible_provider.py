@@ -59,19 +59,10 @@ def test_optional_key_from_env(monkeypatch):
 def test_any_model_accepted_no_forced_key():
     assert validate_model("openai_compatible", "literally-anything") is True
     # The key env exists (read for keyed relays) but the provider is marked
-    # key-optional, so the CLI never forces a prompt and keyless servers work.
+    # key-optional，因此本地服务无需密钥也能工作。
     assert get_api_key_env("openai_compatible") == "OPENAI_COMPATIBLE_API_KEY"
     from tradingagents.llm_clients.openai_client import OPENAI_COMPATIBLE_PROVIDERS
     assert OPENAI_COMPATIBLE_PROVIDERS["openai_compatible"].key_optional is True
-
-
-@pytest.mark.unit
-def test_env_backend_url_precedence():
-    # #978: explicit env URL wins over the menu/default regardless of provider source.
-    from cli.utils import resolve_backend_url
-    assert resolve_backend_url("openai", "https://api.openai.com/v1", env_url="http://proxy/v1") == "http://proxy/v1"
-    assert resolve_backend_url("openai", "https://api.openai.com/v1", env_url=None) == "https://api.openai.com/v1"
-    assert resolve_backend_url("deepseek", None, None) == "https://api.deepseek.com"
 
 
 @pytest.mark.unit

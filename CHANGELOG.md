@@ -1,437 +1,382 @@
-# Changelog
+# 更新日志
 
-All notable changes to TradingAgents are documented here.
+TradingAgents 的所有重要变更都记录在此。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Breaking changes within the 0.x line are called out explicitly.
+格式基于 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)，
+项目遵循 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)。
+0.x 系列中的破坏性变更会单独标注。
 
 ## [0.3.1] — 2026-07-05
 
-Correctness and stability patch: data look-ahead, graph-router crash-safety,
-checkpoint identity, crypto sentiment sources, and configurable resilience.
+正确性与稳定性补丁：数据未来泄漏、图路由器崩溃安全、检查点身份、
+加密货币情绪来源以及可配置的韧性。
 
-### Fixed
+### 修复
 
-- **Alpha Vantage look-ahead filter now runs.** The fundamentals payload is a
-  JSON string, so the dict-only guard skipped filtering and future-dated reports
-  leaked into historical runs; parse before filtering. (#1115, @zachthebird)
-- **News analyst prompt matches the tool.** The prompt advertised
-  `get_news(query, ...)` but the tool takes a ticker; aligned to stop
-  hallucinated free-text query calls. (#1116, @shcheuk)
-- **Shared debate/risk routers can't crash mid-run.** Both routers return more
-  targets than any one edge mapped; every edge now shares the complete path map,
-  so a fall-through under prompt/i18n/refactor drift stays routable.
-  (#1088, @Fr3ya, @sa7an7, @Sushanth012)
-- **Checkpoint resume respects graph shape.** The thread id folds in selected
-  analysts, debate/risk depth, and asset mode, so a resume under different
-  choices no longer continues the wrong graph. (#1089, @bossjoker1, @Ghraven)
-- **Crypto sentiment sources resolve.** StockTwits lists crypto as `<BASE>.X`
-  (Yahoo's `BTC-USD` 404s) and Reddit needs the base symbol to match; the social
-  path now maps crypto correctly for both. (#1113, @suremadoreai)
+- **Alpha Vantage 的未来数据过滤器现在会执行。** 基本面载荷是 JSON 字符串，
+  之前仅检查字典的保护逻辑跳过了过滤，导致未来日期的报告泄漏到历史运行中；
+  现改为先解析再过滤。（#1115，@zachthebird）
+- **新闻分析师提示词与工具一致。** 提示词原先宣传 `get_news(query, ...)`，
+  但工具接收的是 ticker；现已对齐，避免模型虚构自由文本查询调用。
+  （#1116，@shcheuk）
+- **共享辩论/风险路由器不会在运行中崩溃。** 两个路由器返回的目标多于任一
+  单条边的映射数量；现在每条边共享完整路径映射，即使提示词、国际化或重构
+  出现偏差，落空路径仍可路由。（#1088，@Fr3ya，@sa7an7，@Sushanth012）
+- **检查点恢复遵循图结构。** 线程 ID 纳入所选分析师、辩论/风险深度和资产模式，
+  因此使用不同选择恢复时不会继续错误的图。（#1089，@bossjoker1，@Ghraven）
+- **加密货币情绪来源可正确解析。** StockTwits 将加密货币列为 `<BASE>.X`
+  （Yahoo 的 `BTC-USD` 会返回 404），而 Reddit 需要基础代码才能匹配；
+  社交数据路径现在会为两者正确映射加密货币。（#1113，@suremadoreai）
 
-### Added
+### 新增
 
-- **Configurable LLM retry budget.** `llm_max_retries` /
-  `TRADINGAGENTS_LLM_MAX_RETRIES` is forwarded to every provider, so a transient
-  429 burst no longer aborts a run. (#1091, @yanggaome)
-- **Bedrock API-key auth.** `AWS_BEARER_TOKEN_BEDROCK` authenticates Amazon
-  Bedrock without AWS access keys and takes precedence over an ambient
-  `AWS_PROFILE`. (#1103, @praxstack)
-- **Latest Claude models.** Added Claude Sonnet 5 (`claude-sonnet-5`) and
-  Fable 5 (`claude-fable-5`); effort control now covers the Claude 5 line.
+- **可配置的 LLM 重试额度。** `llm_max_retries` /
+  `TRADINGAGENTS_LLM_MAX_RETRIES` 会转发给每个供应商，因此短暂的 429 请求突发不再中止运行。
+  （#1091，@yanggaome）
+- **Bedrock API 密钥认证。** `AWS_BEARER_TOKEN_BEDROCK` 无需 AWS 访问密钥即可
+  认证 Amazon Bedrock，且优先于环境中的 `AWS_PROFILE`。（#1103，@praxstack）
+- **最新 Claude 模型。** 新增 Claude Sonnet 5（`claude-sonnet-5`）和
+  Fable 5（`claude-fable-5`）；Claude 5 系列现在支持 effort 控制。
 
 ## [0.3.0] — 2026-06-22
 
-Stabilization and extensibility release: a CI gate, a unified verified
-data-access contract, a provider and data-vendor registry, and a maintenance
-sweep that hardened config precedence, the model catalog, data resilience, and
-structured output.
+稳定性与可扩展性版本：新增 CI 门禁、统一的数据访问校验契约、供应商与数据
+供应商注册表，并通过维护性清理强化配置优先级、模型目录、数据韧性和结构化输出。
 
-### Added
+### 新增
 
-- **CI gate.** GitHub Actions runs the pytest suite across Python 3.10-3.13,
-  strict `ruff`, and a clean-install smoke that imports the package and CLI to
-  catch undeclared dependencies. (#994, #197)
-- **Provider registry.** OpenAI-compatible providers register as a single spec,
-  and a generic `openai_compatible` endpoint covers vLLM, LM Studio, and relays.
-  Adds NVIDIA NIM, Kimi, Groq, Mistral, and a native Amazon Bedrock client.
-- **Macro and prediction-market vendors.** FRED macro indicators and Polymarket
-  event probabilities, surfaced to the news and macro analysts.
-- **Programmatic report output.** `TradingAgentsGraph.save_reports()` writes the
-  same report tree the CLI produces, for headless and API runs. (#1037)
-- **Env-configurable reasoning depth** via `TRADINGAGENTS_OPENAI_REASONING_EFFORT`,
-  `TRADINGAGENTS_GOOGLE_THINKING_LEVEL`, and `TRADINGAGENTS_ANTHROPIC_EFFORT`,
-  each gated to the models that accept it.
+- **CI 门禁。** GitHub Actions 在 Python 3.10-3.13 上运行 pytest 测试套件、
+  严格的 `ruff` 检查，以及导入包和 CLI 的干净安装冒烟测试，用于发现未声明依赖。
+  （#994，#197）
+- **供应商注册表。** OpenAI 兼容供应商注册为统一规格，通用
+  `openai_compatible` 端点覆盖 vLLM、LM Studio 和中继服务；新增 NVIDIA NIM、
+  Kimi、Groq、Mistral 以及原生 Amazon Bedrock 客户端。
+- **宏观与预测市场供应商。** FRED 宏观指标和 Polymarket 事件概率会提供给
+  新闻与宏观分析师。
+- **程序化报告输出。** `TradingAgentsGraph.save_reports()` 为无头运行和 API
+  运行写入与 CLI 相同的报告树。（#1037）
+- **可通过环境变量配置推理深度。** 通过
+  `TRADINGAGENTS_OPENAI_REASONING_EFFORT`、`TRADINGAGENTS_GOOGLE_THINKING_LEVEL`
+  和 `TRADINGAGENTS_ANTHROPIC_EFFORT` 设置，并仅对接受这些参数的模型启用。
 
-### Changed
+### 变更
 
-- **Verified data-access contract.** Symbol normalization on every vendor path
-  (identity, returns, CLI, news); the configured vendor list is the exact
-  resolution chain with no silent fallback to unselected vendors; a typed
-  `VendorError` taxonomy; look-ahead-safe news windows; stale-OHLCV rejection;
-  inclusive yfinance date ranges.
-- **Config precedence.** An explicit `TRADINGAGENTS_*` value or CLI flag now wins
-  over interactive defaults for debate and risk round counts,
-  `--checkpoint / --no-checkpoint`, and the Docker provider profile; invalid
-  boolean env values fail loudly. (#975, #976, #977)
-- **Current-generation model catalog.** Refreshed provider lineups; retired
-  `gpt-4.1`, Claude Sonnet 4.5, and the Gemini 2.5 line.
-- **Optional vendors degrade** instead of aborting a run: a failed macro or
-  prediction-market lookup returns a no-data sentinel.
-- **Analyst prompts lead with the current date** so tool-call date ranges anchor
-  to the run date rather than the model's training cutoff. (#836)
+- **统一的数据访问校验契约。** 每个供应商路径（身份、收益、CLI、新闻）都进行
+  代码规范化；配置的供应商列表就是准确的解析链，不会静默回退到未选择的供应商；
+  建立类型化的 `VendorError` 分类；新闻窗口防止未来数据；拒绝过期 OHLCV；
+  yfinance 日期范围改为包含边界。
+- **配置优先级。** 显式的 `TRADINGAGENTS_*` 值或 CLI 标志现在优先于辩论和风险
+  轮数、`--checkpoint / --no-checkpoint` 以及 Docker 供应商配置的交互式默认值；
+  无效布尔环境变量会明确报错。（#975，#976，#977）
+- **当前代际模型目录。** 刷新供应商阵容，移除 `gpt-4.1`、Claude Sonnet 4.5
+  和 Gemini 2.5 系列。
+- **可选供应商会降级**而不是中止运行：宏观或预测市场查询失败时返回无数据哨兵值。
+- **分析师提示词以当前日期开头**，使工具调用的日期范围锚定运行日期，而不是模型
+  的训练截止日期。（#836）
 
-### Fixed
+### 修复
 
-- **Instrument identity.** Deterministic ticker-to-company resolution prevents
-  wrong-company hallucination, and a verified market-data snapshot grounds price
-  and indicator claims. (#814, #830)
-- **Social and market data sources.** Reddit RSS-first with 429 backoff,
-  StockTwits transport hardening, and Alpha Vantage timeout plus
-  key-versus-rate-limit handling.
-- **Structured output.** Local OpenAI-compatible servers no longer reject
-  object-form `tool_choice`; a thinking model that returns no parsed result falls
-  back to free text; null-ish strings in optional price fields coerce to `None`.
-  (#1038, #1051, #1057)
+- **标的身份。** 确定性的代码到公司解析可防止错误公司幻觉，经校验的市场数据快照
+  为价格和指标结论提供依据。（#814，#830）
+- **社交与市场数据来源。** Reddit 优先使用 RSS 并在 429 时退避；强化 StockTwits
+  传输；处理 Alpha Vantage 超时以及密钥错误与限流的区别。
+- **结构化输出。** 本地 OpenAI 兼容服务器不再拒绝对象形式的 `tool_choice`；
+  未返回解析结果的思考模型会回退到自由文本；可选价格字段中的类空字符串会转换为
+  `None`。（#1038，#1051，#1057）
 
-### Removed
+### 移除
 
-- The no-op `analyst_concurrency_limit` config knob; parallel analyst execution
-  is planned for a later release. (#979)
-- The unused committed `uv.lock`. (#1030)
+- 无实际作用的 `analyst_concurrency_limit` 配置项；并行分析师执行计划在后续版本推出。
+  （#979）
+- 未使用但已提交的 `uv.lock`。（#1030）
 
-### Contributors
+### 贡献者
 
-Thanks to everyone who shaped this release through code, design, and reports:
+感谢所有通过代码、设计和报告参与塑造此版本的人：
 
 [@CadeYu](https://github.com/CadeYu), [@Zavianx](https://github.com/Zavianx), [@weijianz-opc](https://github.com/weijianz-opc), [@naltun](https://github.com/naltun), [@brahmasky](https://github.com/brahmasky), [@nik2208](https://github.com/nik2208), [@thieucong98](https://github.com/thieucong98), [@Derekko-web](https://github.com/Derekko-web), [@LukiPrince](https://github.com/LukiPrince), [@Eddieargenal](https://github.com/Eddieargenal), [@Ghraven](https://github.com/Ghraven), [@ms32035](https://github.com/ms32035), [@yting27](https://github.com/yting27), [@nyxst4ck](https://github.com/nyxst4ck), [@KenCheung-AIxFinance](https://github.com/KenCheung-AIxFinance), [@yangyusheng2n](https://github.com/yangyusheng2n), [@fareloj](https://github.com/fareloj), [@haosenwang1018](https://github.com/haosenwang1018), [@octo-patch](https://github.com/octo-patch), [@seifenk](https://github.com/seifenk), [@CaoYuhaoCarl](https://github.com/CaoYuhaoCarl), [@mihailnica10](https://github.com/mihailnica10), [@Dado-hash](https://github.com/Dado-hash), [@Handsomemikezzz](https://github.com/Handsomemikezzz), [@ydhawesome](https://github.com/ydhawesome), [@macd2](https://github.com/macd2), [@AyushKar2005](https://github.com/AyushKar2005), [@wildhuman](https://github.com/wildhuman), [@robert23kim](https://github.com/robert23kim), [@bngness](https://github.com/bngness), [@tedix-rodrigo](https://github.com/tedix-rodrigo), [@malaccan](https://github.com/malaccan), [@rfalken78](https://github.com/rfalken78), [@dengli1971-droid](https://github.com/dengli1971-droid), [@proofconcept39](https://github.com/proofconcept39), [@prasta1](https://github.com/prasta1), [@liximin](https://github.com/liximin), [@jeffhuen](https://github.com/jeffhuen), [@mazar](https://github.com/mazar), [@soyangelromero](https://github.com/soyangelromero), [@CNQQC](https://github.com/CNQQC), [@dovetaill](https://github.com/dovetaill), [@fperdigon](https://github.com/fperdigon), [@gyx09212214-prog](https://github.com/gyx09212214-prog), [@RSXLX](https://github.com/RSXLX).
 
 ## [0.2.5] — 2026-05-11
 
-### Added
+### 新增
 
-- **Grounded Sentiment Analyst.** The renamed `sentiment_analyst` now reads
-  real Yahoo News, StockTwits, and Reddit data before generating its report,
-  replacing the prior flow that could fabricate social posts under prompt
-  pressure. (#557, #607)
-- **MiniMax provider** with the full M2.x catalog (M2.7 / M2.5 / M2.1 / M2
-  plus highspeed variants, 204K context). Dual-region: Global
-  (`MINIMAX_API_KEY`) and China (`MINIMAX_CN_API_KEY`).
-- **Dual-region Qwen and GLM** with separate keys per region — international
-  (`DASHSCOPE_API_KEY`, `ZHIPU_API_KEY`) and China (`DASHSCOPE_CN_API_KEY`,
-  `ZHIPU_CN_API_KEY`), selectable via a secondary region prompt. (#758)
-- **`TRADINGAGENTS_*` env-var configurability for `DEFAULT_CONFIG`.** Override
-  `llm_provider`, deep/quick model IDs, `backend_url`, `output_language`,
-  debate-round counts, checkpoint flag, and benchmark ticker via `.env` with
-  type-aware coercion (string / int / bool). (#602)
-- **Interactive API-key detection in the CLI.** When the selected provider's
-  key is missing, the CLI prompts for it and persists the value to `.env`
-  so the analysis run continues without restart.
-- **Remote Ollama support.** `OLLAMA_BASE_URL` points the CLI and the
-  programmatic client at a remote `ollama-serve`. The CLI surfaces the
-  resolved endpoint and warns on common malformed inputs. Adds a
-  `"Custom model ID"` option for models pulled via `ollama pull`. (#648, #768)
-- **Configurable news-fetch parameters** in `DEFAULT_CONFIG` — per-ticker
-  article limit, macro headline limit, lookback window, and macro search
-  queries. (#606, #683)
-- **Configurable alpha benchmark** for non-US tickers. Replaces hardcoded
-  SPY with regional indices for `.NS` (^NSEI), `.T` (^N225), `.HK` (^HSI),
-  `.L` (^FTSE), `.TO` (^GSPTSE), `.AX` (^AXJO), `.BO` (^BSESN); explicit
-  `benchmark_ticker` override available. Eliminates FX drift dominating
-  alpha for non-USD listings. (#628, #684)
-- **Multi-language output covers every user-facing agent** — researchers,
-  risk debators, research manager, and trader, ending the previous
-  partial-localization reports. (#575)
-- **Model catalog refresh.** OpenAI GPT-5.5 frontier, Anthropic Claude Opus
-  4.7, Gemini 3.1 Flash-Lite GA, xAI Grok 4.20, Qwen 3.6 line. Versioned IDs
-  only; auto-shifting aliases moved to the `"Custom model ID"` option.
+- **基于真实数据的情绪分析师。** 重命名后的 `sentiment_analyst` 会在生成报告前读取
+  真实的 Yahoo News、StockTwits 和 Reddit 数据，替代之前可能在提示词压力下虚构
+  社交帖子的流程。（#557，#607）
+- **MiniMax 供应商**提供完整的 M2.x 目录（M2.7 / M2.5 / M2.1 / M2 及高速版本，
+  204K 上下文），支持全球（`MINIMAX_API_KEY`）和中国
+  （`MINIMAX_CN_API_KEY`）双区域。
+- **Qwen 和 GLM 双区域**，每个区域使用独立密钥——国际区域
+  （`DASHSCOPE_API_KEY`、`ZHIPU_API_KEY`）和中国区域
+  （`DASHSCOPE_CN_API_KEY`、`ZHIPU_CN_API_KEY`），可通过二级区域提示选择。
+  （#758）
+- **`TRADINGAGENTS_*` 环境变量可配置 `DEFAULT_CONFIG`。** 可通过 `.env` 覆盖
+  `llm_provider`、深度/快速模型 ID、`backend_url`、`output_language`、
+  辩论轮数、检查点开关和基准代码，并自动按字符串/整数/布尔值进行类型转换。（#602）
+- **CLI 交互式 API 密钥检测。** 选定供应商缺少密钥时，CLI 会提示输入并将值持久化到
+  `.env`，无需重启即可继续分析。
+- **远程 Ollama 支持。** `OLLAMA_BASE_URL` 可让 CLI 和程序化客户端连接远程
+  `ollama-serve`。CLI 会展示解析后的端点，并提示常见格式错误；新增“自定义模型 ID”
+  选项，可选择通过 `ollama pull` 获取的模型。（#648，#768）
+- **可配置的新闻获取参数。** `DEFAULT_CONFIG` 支持设置每个代码的文章上限、
+  宏观标题上限、回溯窗口和宏观搜索查询。（#606，#683）
+- **可配置的非美股 Alpha 基准。** 用区域指数替换硬编码的 SPY，支持
+  `.NS`（^NSEI）、`.T`（^N225）、`.HK`（^HSI）、
+  `.L`（^FTSE）、`.TO`（^GSPTSE）、`.AX`（^AXJO）、
+  `.BO`（^BSESN），也支持显式覆盖 `benchmark_ticker`。
+  消除外币汇率漂移主导非美元上市标的 Alpha 的问题。（#628，#684）
+- **多语言输出覆盖所有面向用户的智能体**——包括研究员、风险辩手、研究经理和交易员，
+  结束之前报告仅部分本地化的状态。（#575）
+- **模型目录刷新。** 更新 OpenAI GPT-5.5 前沿模型、Anthropic Claude Opus 4.7、
+  Gemini 3.1 Flash-Lite 正式版、xAI Grok 4.20 和 Qwen 3.6 系列；只展示带版本号的 ID，
+  自动变化的别名移至“自定义模型 ID”选项。
 
-### Changed
+### 变更
 
-- **Sentiment Analyst** is now consistently named across the CLI dropdown,
-  status panel, and final reports (previously the backend was renamed but
-  the CLI still said "Social Analyst"). The `AnalystType.SOCIAL = "social"`
-  wire value is kept for saved-config back-compat.
+- **情绪分析师**现在在 CLI 下拉框、状态面板和最终报告中统一命名
+  （之前后端已重命名，但 CLI 仍显示“Social Analyst”）。协议值
+  `AnalystType.SOCIAL = "social"` 保留，以兼容已保存配置。
 
-### Fixed
+### 修复
 
-- **Structured output works on DeepSeek V4 / reasoner and MiniMax M2.x.**
-  Those providers reject `tool_choice` per their tool-calling docs; the
-  binding flow now skips it automatically via a capability table.
-- **`pip install .` installations pick up the project `.env`** when running
-  the CLI as a console script. (#747)
-- **Reports save end-to-end** — streamed chunks were previously dropped from
-  `complete_report.md`. (#719, #736)
-- **Ticker prompt preserves exchange suffixes** (`.SH`, `.SZ`, `.SS`, `.HK`,
-  `.T`, etc.) for A-share, HK, Tokyo, and other non-US flows. (#770)
-- **Docker permission errors** no longer block first-run write to
-  `~/.tradingagents/`. (#519, #627, #672, #771)
-- **Config state no longer leaks between runs** when sub-dicts are mutated;
-  `set_config` partial updates preserve sibling defaults. (#788)
-- **`max_recur_limit` config actually applies** — previously read but not
-  forwarded to the propagator. (#764)
-- **Missing-API-key error** names the exact env var to set. (#680)
-- **Quieter startup** — suppressed the noisy upstream
-  `LangChainPendingDeprecationWarning` from langgraph-checkpoint; will be
-  removed once that package ships its fix.
+- **DeepSeek V4 / reasoner 与 MiniMax M2.x 支持结构化输出。** 这些供应商根据工具调用文档
+  拒绝 `tool_choice`；现在绑定流程通过能力表自动跳过该参数。
+- **`pip install .` 安装后可读取项目 `.env`。** 以控制台脚本运行 CLI 时同样生效。（#747）
+- **报告端到端保存。** 之前流式块会从 `complete_report.md` 中丢失，现在已修复。（#719，#736）
+- **股票代码提示词保留交易所后缀。** 对 A 股、港股、东京及其他非美股流程保留
+  `.SH`、`.SZ`、`.SS`、`.HK`、`.T` 等后缀。（#770）
+- **Docker 权限错误**不再阻止首次写入 `~/.tradingagents/`。（#519，#627，#672，#771）
+- **配置状态不再在多次运行之间泄漏。** 修改子字典时，`set_config` 的局部更新会保留同级默认值。
+  （#788）
+- **`max_recur_limit` 配置真正生效。** 之前虽然读取了它，但没有转发给传播器。（#764）
+- **缺少 API 密钥的错误**会指出需要设置的确切环境变量。（#680）
+- **启动更安静。** 抑制来自 langgraph-checkpoint 的上游
+  `LangChainPendingDeprecationWarning`；待该软件包发布修复后即可移除。
 
-### Security
+### 安全
 
-- **Ticker path-traversal validation** at every filesystem-path site (cache,
-  checkpoint database, results) so a malicious ticker cannot escape its
-  intended directory. (#618)
+- **在所有文件系统路径位置校验股票代码路径遍历。** 覆盖缓存、检查点数据库和结果目录，
+  防止恶意股票代码逃逸出预期目录。（#618）
 
 ## [0.2.4] — 2026-04-25
 
-### Added
+### 新增
 
-- **Structured-output decision agents.** Research Manager, Trader, and Portfolio
-  Manager now use `llm.with_structured_output(Schema)` on their primary call
-  and return typed Pydantic instances. Each provider's native structured-output
-  mode is used (`json_schema` for OpenAI / xAI, `response_schema` for Gemini,
-  tool-use for Anthropic, function-calling for OpenAI-compatible providers).
-  Render helpers preserve the existing markdown shape so memory log, CLI
-  display, and saved reports keep working unchanged. (#434)
-- **LangGraph checkpoint resume** — opt-in via `--checkpoint`. State is saved
-  after each node so crashed or interrupted runs resume from the last
-  successful step. Per-ticker SQLite databases under
-  `~/.tradingagents/cache/checkpoints/`. `--clear-checkpoints` resets them. (#594)
-- **Persistent decision log** replacing the per-agent BM25 memory. Decisions
-  are stored automatically at the end of `propagate()`; the next same-ticker
-  run resolves prior pending entries with realised return, alpha vs SPY, and
-  a one-paragraph reflection. Override path with `TRADINGAGENTS_MEMORY_LOG_PATH`.
-  Optional `memory_log_max_entries` config caps resolved entries; pending
-  entries are never pruned. (#578, #563, #564, #579)
-- **DeepSeek, Qwen (Alibaba DashScope), GLM (Zhipu), and Azure OpenAI**
-  providers, plus dynamic OpenRouter model selection.
-- **Docker support** — multi-stage build with separate dev and runtime images.
-- **`scripts/smoke_structured_output.py`** — diagnostic that exercises the
-  three structured-output agents against any provider so contributors can
-  verify their setup with one command.
-- **5-tier rating scale** (Buy / Overweight / Hold / Underweight / Sell) used
-  consistently by Research Manager, Portfolio Manager, signal processor, and
-  the memory log; Trader keeps 3-tier (Buy / Hold / Sell) since transaction
-  direction is naturally ternary.
-- **Pytest fixtures** — lazy LLM client imports plus placeholder API keys so
-  the test suite runs cleanly without credentials. (#588)
+- **结构化输出决策智能体。** 研究经理、交易员和投资组合经理现在在主要调用中使用
+  `llm.with_structured_output(Schema)`，并返回类型化 Pydantic 实例。各供应商使用
+  原生结构化输出模式（OpenAI / xAI 使用 `json_schema`，Gemini 使用
+  `response_schema`，Anthropic 使用工具调用，OpenAI 兼容供应商使用函数调用）。
+  渲染辅助函数保留现有 Markdown 形状，确保记忆日志、CLI 显示和保存报告不变。（#434）
+- **LangGraph 检查点恢复**——通过 `--checkpoint` 选择启用。每个节点后保存状态，
+  崩溃或中断时可从最后一个成功步骤恢复。每个代码的 SQLite 数据库位于
+  `~/.tradingagents/cache/checkpoints/`；`--clear-checkpoints` 可重置它们。（#594）
+- **持久化决策日志**替代每个智能体的 BM25 记忆。决策会在 `propagate()` 末尾自动保存；
+  下一次同代码运行会用实际收益、相对 SPY 的 Alpha 和一段反思更新之前的待处理条目。
+  可通过 `TRADINGAGENTS_MEMORY_LOG_PATH` 覆盖路径；可选的
+  `memory_log_max_entries` 配置限制已完成条目数量，待处理条目永不清理。（#578，#563，#564，#579）
+- **DeepSeek、Qwen（阿里云 DashScope）、GLM（智谱）和 Azure OpenAI** 供应商，
+  并支持动态选择 OpenRouter 模型。
+- **Docker 支持**——提供独立开发和运行镜像的多阶段构建。
+- **`scripts/smoke_structured_output.py`**——针对任意供应商检查三个结构化输出智能体，
+  让贡献者可以用一条命令验证配置。
+- **五级评级尺度**（Buy / Overweight / Hold / Underweight / Sell）由研究经理、
+  投资组合经理、信号处理器和记忆日志统一使用；交易员保留三级（Buy / Hold / Sell），
+  因为交易方向天然是三值的。
+- **Pytest 测试夹具**——延迟导入 LLM 客户端并提供占位 API 密钥，确保测试套件无需凭据即可运行。
+  （#588）
 
-### Changed
+### 变更
 
-- **`backend_url` default is now `None`** rather than the OpenAI URL. Each
-  provider client falls back to its native default. The previous default
-  leaked the OpenAI URL into non-OpenAI clients (e.g. Gemini), producing
-  malformed request URLs for Python users who switched providers without
-  overriding `backend_url`. The CLI flow is unaffected.
-- All file I/O passes explicit `encoding="utf-8"` so Windows users no longer
-  hit `UnicodeEncodeError` with the cp1252 default. (#543, #550, #576)
-- Cache and log directories moved to `~/.tradingagents/` to resolve Docker
-  permission issues. (#519)
-- `SignalProcessor` reads the rating from the Portfolio Manager's rendered
-  markdown via a deterministic heuristic — no extra LLM call.
-- OpenAI structured-output calls default to `method="function_calling"` to
-  avoid noisy `PydanticSerializationUnexpectedValue` warnings emitted by
-  langchain-openai's Responses-API parse path. Same typed result, no warnings.
+- **`backend_url` 默认值现在是 `None`**，不再是 OpenAI URL。每个供应商客户端
+  会回退到自身默认值，避免用户切换供应商却未覆盖 `backend_url` 时产生错误请求 URL。
+  CLI 流程不受影响。
+- 所有文件 I/O 都显式传入 `encoding="utf-8"`，Windows 用户不再因 cp1252 默认编码
+  遇到 `UnicodeEncodeError`。（#543，#550，#576）
+- 缓存和日志目录移至 `~/.tradingagents/`，以解决 Docker 权限问题。（#519）
+- `SignalProcessor` 通过确定性启发式从投资组合经理渲染的 Markdown 中读取评级，
+  不再额外调用 LLM。
+- OpenAI 结构化输出调用默认使用 `method="function_calling"`，避免
+  langchain-openai Responses API 解析路径产生嘈杂的 `PydanticSerializationUnexpectedValue`
+  警告；类型化结果不变且无警告。
 
-### Fixed
+### 修复
 
-- Empty memory no longer triggers fabricated past-lessons in agent prompts;
-  the memory-log redesign makes this structurally impossible since only the
-  Portfolio Manager consults memory and only when entries exist. (#572)
-- Tool-call logging processes every chunk message, not just the last one, and
-  memory score normalization handles empty score arrays. (#534, #531)
+- 空记忆不再触发智能体提示词中的虚构历史经验；记忆日志重构从结构上杜绝了该问题，
+  因为只有投资组合经理会在存在条目时查询记忆。（#572）
+- 工具调用日志处理每个块消息，而不只是最后一条；记忆得分归一化也能处理空得分数组。
+  （#534，#531）
 
-### Removed
+### 移除
 
-- `FinancialSituationMemory` (the per-agent BM25 system) and the dead
-  `reflect_and_remember()` plumbing; subsumed by the persistent decision log.
-- Hardcoded Google endpoint that caused 404 when `langchain-google-genai`
-  changed its API path. (#493, #496)
+- `FinancialSituationMemory`（每个智能体的 BM25 系统）和无效的
+  `reflect_and_remember()` 连接逻辑；其功能已由持久化决策日志接替。
+- 导致 `langchain-google-genai` 更改 API 路径后返回 404 的硬编码 Google 端点。
+  （#493，#496）
 
-### Contributors
+### 贡献者
 
-Thanks to everyone who shaped this release through code, design, and reports:
+感谢所有通过代码、设计和报告参与塑造此版本的人：
 
-- [@claytonbrown](https://github.com/claytonbrown) — checkpoint resume (#594), test fixtures (#588), design feedback on cost tracking (#582) and structured validation (#583)
-- [@Bcardo](https://github.com/Bcardo) — memory-log redesign (#579), empty-memory hallucination report (#572), encoding fix proposal (#570)
-- [@voidborne-d](https://github.com/voidborne-d) — memory persistence design (#564), portfolio manager state fix (#503)
-- [@mannubaveja007](https://github.com/mannubaveja007) — structured-output feature request (#434)
-- [@kelder66](https://github.com/kelder66) — RAM-only memory issue (#563)
-- [@Gujiassh](https://github.com/Gujiassh) — tool-call logging fix (#534), test stub PR (#533)
-- [@iuyup](https://github.com/iuyup) — memory score normalization fix (#531)
-- [@kaihg](https://github.com/kaihg) — Google base_url fix (#496)
-- [@32ryh98yfe](https://github.com/32ryh98yfe) — Gemini 404 report (#493)
-- [@uppb](https://github.com/uppb) — OpenRouter dynamic model selection (#482)
-- [@guoz14](https://github.com/guoz14) — OpenRouter limited-model report (#337)
-- [@samchenku](https://github.com/samchenku) — indicator name normalization (#490)
-- [@JasonOA888](https://github.com/JasonOA888) — y_finance pandas import fix (#488)
-- [@tiffanychum](https://github.com/tiffanychum) — stale import cleanup (#499)
-- [@zaizou](https://github.com/zaizou) — Docker permission issue (#519)
-- [@Stosman123](https://github.com/Stosman123), [@mauropuga](https://github.com/mauropuga), [@hotwind2015](https://github.com/hotwind2015) — Windows encoding bug reports (#543, #550, #576)
-- [@nnishad](https://github.com/nnishad), [@atharvajoshi01](https://github.com/atharvajoshi01) — encoding fix proposals (#568, #549)
+- [@claytonbrown](https://github.com/claytonbrown) — 检查点恢复（#594）、测试夹具（#588）、成本统计设计反馈（#582）和结构化校验（#583）
+- [@Bcardo](https://github.com/Bcardo) — 记忆日志重构（#579）、空记忆幻觉报告（#572）和编码修复提案（#570）
+- [@voidborne-d](https://github.com/voidborne-d) — 记忆持久化设计（#564）和投资组合经理状态修复（#503）
+- [@mannubaveja007](https://github.com/mannubaveja007) — 结构化输出功能请求（#434）
+- [@kelder66](https://github.com/kelder66) — 仅内存存储问题（#563）
+- [@Gujiassh](https://github.com/Gujiassh) — 工具调用日志修复（#534）和测试伪实现 PR（#533）
+- [@iuyup](https://github.com/iuyup) — 记忆得分归一化修复（#531）
+- [@kaihg](https://github.com/kaihg) — Google base_url 修复（#496）
+- [@32ryh98yfe](https://github.com/32ryh98yfe) — Gemini 404 报告（#493）
+- [@uppb](https://github.com/uppb) — OpenRouter 动态模型选择（#482）
+- [@guoz14](https://github.com/guoz14) — OpenRouter 模型限制报告（#337）
+- [@samchenku](https://github.com/samchenku) — 指标名称规范化（#490）
+- [@JasonOA888](https://github.com/JasonOA888) — y_finance pandas 导入修复（#488）
+- [@tiffanychum](https://github.com/tiffanychum) — 过期导入清理（#499）
+- [@zaizou](https://github.com/zaizou) — Docker 权限问题（#519）
+- [@Stosman123](https://github.com/Stosman123)、[@mauropuga](https://github.com/mauropuga)、[@hotwind2015](https://github.com/hotwind2015) — Windows 编码错误报告（#543、#550、#576）
+- [@nnishad](https://github.com/nnishad)、[@atharvajoshi01](https://github.com/atharvajoshi01) — 编码修复提案（#568、#549）
 
 ## [0.2.3] — 2026-03-29
 
-### Added
+### 新增
 
-- **Multi-language output** for analyst reports and final decisions, with a
-  CLI selector. Internal agent debate stays in English for reasoning quality. (#472)
-- **GPT-5.4 family models** in the default catalog, with deep/quick model split.
-- **Unified model catalog** as a single source of truth for CLI options and
-  provider validation.
+- **多语言输出**用于分析师报告和最终决策，并提供 CLI 选择器。智能体内部辩论保留英文
+  以保证推理质量。（#472）
+- **GPT-5.4 系列模型**加入默认目录，并区分深度/快速模型。
+- **统一模型目录**作为 CLI 选项和供应商校验的唯一事实来源。
 
-### Changed
+### 变更
 
-- `base_url` is forwarded to Google and Anthropic clients so corporate proxies
-  work consistently across providers. (#427)
-- Standardised the Google `api_key` parameter to the unified `api_key` form.
+- `base_url` 会转发给 Google 和 Anthropic 客户端，使企业代理在不同供应商间
+  一致工作。（#427）
+- 将 Google 的 `api_key` 参数统一为 `api_key` 形式。
 
-### Fixed
+### 修复
 
-- Backtesting fetchers no longer leak look-ahead data when `curr_date` is in
-  the middle of a fetched window. (#475)
-- Invalid indicator names from the LLM are caught at the tool boundary instead
-  of crashing the run. (#429)
-- yfinance news fetchers respect the same exponential-backoff retry as price
-  fetchers. (#445)
+- 当 `curr_date` 位于获取窗口中间时，回测数据获取器不再泄漏未来数据。（#475）
+- LLM 返回的无效指标名称会在工具边界捕获，而不是导致运行崩溃。（#429）
+- yfinance 新闻获取器与价格获取器一样遵循指数退避重试。（#445）
 
-### Contributors
+### 贡献者
 
-- [@ahmedk20](https://github.com/ahmedk20) — multi-language output (#472)
-- [@CadeYu](https://github.com/CadeYu) — model catalog typing (#464)
-- [@javierdejesusda](https://github.com/javierdejesusda) — unified Google API key parameter (#453)
-- [@voidborne-d](https://github.com/voidborne-d) — yfinance news retry (#445)
-- [@kostakost2](https://github.com/kostakost2) — look-ahead bias report (#475)
-- [@lu-zhengda](https://github.com/lu-zhengda) — proxy/base_url support request (#427)
-- [@VamsiKrishna2021](https://github.com/VamsiKrishna2021) — invalid indicator crash report (#429)
+- [@ahmedk20](https://github.com/ahmedk20) — 多语言输出（#472）
+- [@CadeYu](https://github.com/CadeYu) — 模型目录类型定义（#464）
+- [@javierdejesusda](https://github.com/javierdejesusda) — 统一 Google API 密钥参数（#453）
+- [@voidborne-d](https://github.com/voidborne-d) — yfinance 新闻重试（#445）
+- [@kostakost2](https://github.com/kostakost2) — 未来数据偏差报告（#475）
+- [@lu-zhengda](https://github.com/lu-zhengda) — 代理/base_url 支持请求（#427）
+- [@VamsiKrishna2021](https://github.com/VamsiKrishna2021) — 无效指标崩溃报告（#429）
 
 ## [0.2.2] — 2026-03-22
 
-### Added
+### 新增
 
-- **Five-tier rating scale** (Buy / Overweight / Hold / Underweight / Sell)
-  introduced for the Portfolio Manager.
-- **Anthropic effort level** support for Claude models.
-- **OpenAI Responses API** path for native OpenAI models.
+- **五级评级尺度**（Buy / Overweight / Hold / Underweight / Sell）引入投资组合经理。
+- **Anthropic effort 等级**支持 Claude 模型。
+- **OpenAI Responses API** 路径支持原生 OpenAI 模型。
 
-### Changed
+### 变更
 
-- `risk_manager` renamed to `portfolio_manager` to match the role description
-  shown in the CLI display.
-- Exchange-qualified tickers (e.g. `7203.T`, `BRK.B`) preserved across all
-  agent prompts and tool calls.
-- Process-level UTF-8 default attempted for cross-platform consistency
-  (note: this approach did not actually take effect; replaced in v0.2.4 with
-  explicit per-call `encoding="utf-8"` arguments).
+- `risk_manager` 重命名为 `portfolio_manager`，以匹配 CLI 显示的角色描述。
+- 交易所限定的股票代码（例如 `7203.T`、`BRK.B`）在所有智能体提示词和工具调用中保留。
+- 尝试设置进程级 UTF-8 默认值以保证跨平台一致性（注意：该方法实际未生效；
+  v0.2.4 已改为每次调用显式传入 `encoding="utf-8"` 参数）。
 
-### Fixed
+### 修复
 
-- yfinance rate-limit errors are retried with exponential backoff. (#426)
-- HTTP client SSL customisation is supported for environments that need
-  custom certificate bundles. (#379)
-- Report-section writes handle list-of-string content gracefully.
+- yfinance 限流错误会使用指数退避重试。（#426）
+- HTTP 客户端支持需要自定义证书包的环境配置 SSL。（#379）
+- 报告章节写入可以优雅处理字符串列表内容。
 
-### Contributors
+### 贡献者
 
-- [@CadeYu](https://github.com/CadeYu) — exchange-qualified ticker preservation (#413)
-- [@yang1002378395-cmyk](https://github.com/yang1002378395-cmyk) — HTTP client SSL customisation (#379)
+- [@CadeYu](https://github.com/CadeYu) — 保留带交易所限定的股票代码（#413）
+- [@yang1002378395-cmyk](https://github.com/yang1002378395-cmyk) — HTTP 客户端 SSL 自定义（#379）
 
 ## [0.2.1] — 2026-03-15
 
-### Security
+### 安全
 
-- Patched `langchain-core` vulnerability (LangGrinch). (#335)
-- Removed `chainlit` dependency affected by CVE-2026-22218.
+- 修复 `langchain-core` 漏洞（LangGrinch）。（#335）
+- 移除受 CVE-2026-22218 影响的 `chainlit` 依赖。
 
-### Added
+### 新增
 
-- `pyproject.toml` build-system configuration; the project now installs via
-  modern packaging tooling.
+- `pyproject.toml` 构建系统配置；项目现在可通过现代打包工具安装。
 
-### Removed
+### 移除
 
-- `setup.py` — dependencies consolidated to `pyproject.toml`.
+- `setup.py` — 依赖已集中到 `pyproject.toml`。
 
-### Fixed
+### 修复
 
-- Risk manager reads the correct fundamental report source. (#341)
-- All `open()` calls receive an explicit UTF-8 encoding (initial pass).
-- `get_indicators` tool handles comma-separated indicator names from the LLM. (#368)
-- `Propagation` initialises every debate-state field so risk debaters never
-  see missing keys.
-- Stock data parsing tolerates malformed CSVs and NaN values.
-- Conditional debate logic respects the configured round count. (#361)
+- 风险管理读取正确的基本面报告来源。（#341）
+- 所有 `open()` 调用显式使用 UTF-8 编码（初始版本）。
+- `get_indicators` 工具支持处理 LLM 返回的逗号分隔指标名称。（#368）
+- `Propagation` 初始化所有辩论状态字段，风险辩手不会再看到缺失的键。
+- 股票数据解析可以容忍格式错误的 CSV 和 NaN 值。
+- 条件辩论逻辑遵循配置的轮数。（#361）
 
-### Contributors
+### 贡献者
 
-- [@RinZ27](https://github.com/RinZ27) — `langchain-core` security patch (#335)
-- [@Ljx-007](https://github.com/Ljx-007) — risk manager fundamental-report fix (#341)
-- [@makk9](https://github.com/makk9) — debate-rounds config issue (#361)
+- [@RinZ27](https://github.com/RinZ27) — `langchain-core` 安全补丁（#335）
+- [@Ljx-007](https://github.com/Ljx-007) — 风险管理基本面报告修复（#341）
+- [@makk9](https://github.com/makk9) — 辩论轮数配置问题（#361）
 
 ## [0.2.0] — 2026-02-04
 
-This is the largest release since the initial public version. The framework
-moved from single-provider to a multi-provider architecture and grew several
-production-ready surfaces.
+这是自初始公开版本以来规模最大的发布版本。框架从单供应商架构升级为多供应商
+架构，并增加了多个可用于生产的功能面。
 
-### Added
+### 新增
 
-- **Multi-provider LLM support** (OpenAI, Google, Anthropic, xAI, OpenRouter,
-  Ollama) via a factory pattern, with provider-specific thinking configurations.
-- **Alpha Vantage** integration as a configurable primary data provider, with
-  yfinance as a community-stability fallback.
-- **Footer statistics** in the CLI: real-time tracking of LLM calls, tool
-  calls, and token usage via LangChain callbacks.
-- **Post-analysis report saving** — the framework writes per-section markdown
-  files (analyst reports, debate transcripts, final decision) when a run
-  completes.
-- **Announcements panel** — fetches updates from `api.tauric.ai/v1/announcements`
-  for the CLI welcome screen.
-- **Tool fallbacks** so a single vendor outage does not stop the pipeline.
+- **多供应商 LLM 支持**（OpenAI、Google、Anthropic、xAI、OpenRouter、Ollama），
+  通过工厂模式接入，并支持供应商专属的思考配置。
+- **Alpha Vantage** 集成作为可配置的主数据供应商，以 yfinance 作为社区稳定性备用来源。
+- **CLI 页脚统计**：通过 LangChain 回调实时跟踪 LLM 调用、工具调用和 token 使用量。
+- **分析后保存报告**——运行完成时，框架写入分章节 Markdown 文件
+  （分析师报告、辩论记录和最终决策）。
+- **公告面板**——从 `api.tauric.ai/v1/announcements` 获取 CLI 欢迎屏幕的更新。
+- **工具回退**，单个供应商中断不会停止流水线。
 
-### Changed
+### 变更
 
-- Risky / Safe risk debaters renamed to **Aggressive / Conservative** for
-  consistency with the displayed agent labels.
-- Default data vendor switched to balance reliability and quota across
-  community deployments.
-- Ollama and OpenRouter model lists updated; default endpoints clarified.
+- 为与显示的智能体标签一致，Risky / Safe 风险辩手重命名为
+  **Aggressive / Conservative**。
+- 默认数据供应商调整，以平衡社区部署中的可靠性和配额。
+- 更新 Ollama 和 OpenRouter 模型列表，并明确默认端点。
 
-### Fixed
+### 修复
 
-- Analyst status tracking and message deduplication in the live display.
-- Infinite-loop guard in the agent loop; reflection and logging hardened.
-- Various data-vendor implementation bugs and tool-signature mismatches.
+- 实时显示中的分析师状态跟踪和消息去重。
+- 智能体循环中的无限循环保护，并强化反思与日志记录。
+- 修复多个数据供应商实现错误和工具签名不匹配问题。
 
-### Contributors
+### 贡献者
 
-This release is the first with substantial outside contributions; many community
-PRs from late 2025 also landed here.
+这是首次获得大量外部贡献的版本；许多来自 2025 年末社区的 PR 也在此版本合入。
 
-- [@luohy15](https://github.com/luohy15) — Alpha Vantage data-vendor integration (#235)
-- [@EdwardoSunny](https://github.com/EdwardoSunny) — yfinance fetching optimisations (#245)
-- [@Mirza-Samad-Ahmed-Baig](https://github.com/Mirza-Samad-Ahmed-Baig) — infinite-loop guard, reflection, and logging fixes (#89)
-- [@ZeroAct](https://github.com/ZeroAct) — saved results path support (#29)
-- [@Zhongyi-Lu](https://github.com/Zhongyi-Lu) — `.env` gitignore (#49)
-- [@csoboy](https://github.com/csoboy) — local Ollama setup (#53)
-- [@chauhang](https://github.com/chauhang) — initial Docker support attempt (#47, later reverted; the merged Docker support shipped in v0.2.4)
+- [@luohy15](https://github.com/luohy15) — Alpha Vantage 数据供应商集成（#235）
+- [@EdwardoSunny](https://github.com/EdwardoSunny) — yfinance 获取优化（#245）
+- [@Mirza-Samad-Ahmed-Baig](https://github.com/Mirza-Samad-Ahmed-Baig) — 无限循环保护、反思和日志修复（#89）
+- [@ZeroAct](https://github.com/ZeroAct) — 保存结果路径支持（#29）
+- [@Zhongyi-Lu](https://github.com/Zhongyi-Lu) — `.env` gitignore 配置（#49）
+- [@csoboy](https://github.com/csoboy) — 本地 Ollama 设置（#53）
+- [@chauhang](https://github.com/chauhang) — 首次 Docker 支持尝试（#47，后续回滚；合入的 Docker 支持在 v0.2.4 发布）
 
 ## [0.1.1] — 2025-06-07
 
-### Removed
+### 移除
 
-- Static site assets that had been bundled with v0.1.0; the public site now
-  lives separately.
+- 随 v0.1.0 打包的静态网站资源；公共网站现在独立维护。
 
 ## [0.1.0] — 2025-06-05
 
-### Added
+### 新增
 
-- **Initial public release** of the TradingAgents multi-agent trading
-  framework: market / sentiment / news / fundamentals analysts; bull and bear
-  researchers; trader; aggressive, conservative, and neutral risk debaters;
-  portfolio manager. LangGraph orchestration, yfinance data, per-agent
-  BM25 memory, single-provider OpenAI integration, interactive CLI.
+- TradingAgents 多智能体交易框架的**首次公开发布**：市场、情绪、新闻和基本面分析师；
+  看多与看空研究员；交易员；激进、保守和中性风险辩手；投资组合经理。
+  支持 LangGraph 编排、yfinance 数据、每个智能体的 BM25 记忆、单供应商 OpenAI
+  集成以及交互式 CLI。
 
 [0.2.4]: https://github.com/TauricResearch/TradingAgents/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/TauricResearch/TradingAgents/compare/v0.2.2...v0.2.3

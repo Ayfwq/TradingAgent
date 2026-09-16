@@ -1,14 +1,13 @@
-"""A-share full-pipeline runner (data-complete, zero-degradation path).
+"""A 股完整流水线运行器（数据完整、零降级路径）。
 
-Uses Kweichow Moutai (600519.SS) with today's date as the analysis date:
-- OHLCV, technical indicators, verified snapshot, fundamentals, the three
-  financial statements, per-ticker news, global news, macro series and
-  insider transactions all come from domestic sources (Sina/Eastmoney/
-  JinShi/Xueqiu) via the akshare vendor — no Yahoo, no overseas APIs.
-- The LLM stack runs deepseek @ the configured endpoint (deep=pro, quick=flash).
-- Writes a structured run summary (run_summary.json) next to the reports.
+使用贵州茅台（600519.SS），以当天日期作为分析日期：
+- OHLCV、技术指标、经校验快照、基本面、三大财务报表、个股新闻、全球新闻、
+  宏观序列和内部交易全部通过 akshare 供应商来自国内来源（新浪/东方财富/
+  金十/雪球），不使用 Yahoo 或海外 API。
+- LLM 栈通过配置的端点运行 deepseek（deep=pro，quick=flash）。
+- 在报告旁写入结构化运行摘要（run_summary.json）。
 
-Usage:  uv run python scripts/run_ashare.py [TICKER] [DATE] [SAVE_PATH]
+用法：uv run python scripts/run_ashare.py [TICKER] [DATE] [SAVE_PATH]
 """
 
 import json
@@ -25,10 +24,10 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph
 TICKER = sys.argv[1] if len(sys.argv) > 1 else "600519.SS"
 DATE = sys.argv[2] if len(sys.argv) > 2 else datetime.now().strftime("%Y-%m-%d")
 
-print(f"=== A-share pipeline: {TICKER} @ {DATE} ===")
-print(f"LLM: deep={DEFAULT_CONFIG['deep_think_llm']} quick={DEFAULT_CONFIG['quick_think_llm']}")
-print(f"LLM: {DEFAULT_CONFIG['backend_url']}")
-print(f"Vendors: {DEFAULT_CONFIG['data_vendors']}")
+print(f"=== A 股流水线：{TICKER} @ {DATE} ===")
+print(f"LLM：深度={DEFAULT_CONFIG['deep_think_llm']} 快速={DEFAULT_CONFIG['quick_think_llm']}")
+print(f"LLM 端点：{DEFAULT_CONFIG['backend_url']}")
+print(f"数据供应商：{DEFAULT_CONFIG['data_vendors']}")
 print()
 
 t0 = time.monotonic()
@@ -39,18 +38,18 @@ _, decision = ta.propagate(TICKER, DATE)
 elapsed = time.monotonic() - t0
 
 print("\n" + "=" * 70)
-print("FINAL DECISION")
+print("最终决策")
 print("=" * 70)
 print(decision)
 
-# Also write the markdown report tree (like the CLI does).
+# 同时写入 Markdown 报告树（与 Web 相同）。
 report_path = ta.save_reports(
     ta.curr_state, TICKER,
     save_path=sys.argv[3] if len(sys.argv) > 3 else None,
 )
-print(f"\nReports saved to: {report_path}")
+print(f"\n报告已保存到：{report_path}")
 
-# Structured run summary (⑬): machine-readable record for batch analysis.
+# 结构化运行摘要（⑬）：供批量分析使用的机器可读记录。
 summary = {
     "ticker": TICKER,
     "trade_date": DATE,
@@ -71,8 +70,7 @@ summary = {
         for k in ("market_report", "sentiment_report", "news_report", "fundamentals_report")
     },
 }
-# ``save_reports`` returns the complete_report.md FILE path; the summary sits
-# next to it in the same report directory.
+# ``save_reports`` 返回 complete_report.md 文件路径；摘要位于同一报告目录中。
 summary_path = Path(report_path).parent / "run_summary.json"
 summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-print(f"Run summary saved to: {summary_path}")
+print(f"运行摘要已保存到：{summary_path}")

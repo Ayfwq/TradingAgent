@@ -1,13 +1,10 @@
-"""Extract the 5-tier portfolio rating from the Portfolio Manager's decision.
+"""从投资组合经理的决策中提取五级投资组合评级。
 
-The Portfolio Manager produces a typed ``PortfolioDecision`` via structured
-output and renders it to markdown that always carries a ``**Rating**: X``
-header (see :func:`tradingagents.agents.schemas.render_pm_decision`).  The
-deterministic heuristic in :mod:`tradingagents.agents.utils.rating` is more
-than sufficient to extract that rating; no extra LLM call is needed.
+投资组合经理通过结构化输出生成类型化的 ``PortfolioDecision``，并将其渲染为始终
+包含 ``**Rating**: X`` 标题的 Markdown（参见 :func:`tradingagents.agents.schemas.render_pm_decision`）。
+``tradingagents.agents.utils.rating`` 中的确定性启发式足以提取评级，无需额外的 LLM 调用。
 
-This module exists for backwards compatibility with callers that expect a
-``SignalProcessor.process_signal(text)`` interface.
+本模块用于兼容仍期待 ``SignalProcessor.process_signal(text)`` 接口的调用方。
 """
 
 from __future__ import annotations
@@ -21,17 +18,16 @@ logger = logging.getLogger(__name__)
 
 
 class SignalProcessor:
-    """Read the 5-tier rating out of a Portfolio Manager decision."""
+    """从投资组合经理决策中读取五级评级。"""
 
     def __init__(self, quick_thinking_llm: Any = None):
-        # The LLM argument is accepted for backwards compatibility but no
-        # longer used: the PM's structured output guarantees the rating is
-        # parseable from the rendered markdown without a second LLM call.
+        # 保留 LLM 参数以兼容旧调用，但不再使用：投资组合经理的结构化输出保证
+        # 可以从渲染后的 Markdown 中解析评级，无需第二次 LLM 调用。
         self.quick_thinking_llm = quick_thinking_llm
-        logger.debug("SignalProcessor initialized")
+        logger.debug("SignalProcessor 已初始化")
 
     def process_signal(self, full_signal: str) -> str:
-        """Return one of Buy / Overweight / Hold / Underweight / Sell."""
+        """返回 Buy / Overweight / Hold / Underweight / Sell 之一。"""
         rating = parse_rating(full_signal)
-        logger.debug("Parsed rating from PM decision: %s", rating)
+        logger.debug("已从投资组合经理决策解析评级：%s", rating)
         return rating

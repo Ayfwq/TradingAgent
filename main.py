@@ -20,7 +20,7 @@ ta = TradingAgentsGraph(debug=True, config=config)
 # forward propagate
 logger.info("Starting propagate for NVDA / 2024-05-10")
 _, decision = ta.propagate("NVDA", "2024-05-10")
-logger.info("propagate finished; decision=%s", decision)
+logger.info("propagate finished")
 print(decision)
 
 # Memorize mistakes and reflect

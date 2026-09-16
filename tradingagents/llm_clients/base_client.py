@@ -7,12 +7,11 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_content(response):
-    """Normalize LLM response content to a plain string.
+    """将 LLM 响应内容规范化为纯字符串。
 
-    Multiple providers (OpenAI Responses API, Google Gemini 3) return content
-    as a list of typed blocks, e.g. [{'type': 'reasoning', ...}, {'type': 'text', 'text': '...'}].
-    Downstream agents expect response.content to be a string. This extracts
-    and joins the text blocks, discarding reasoning/metadata blocks.
+    多个服务商（OpenAI Responses API、Google Gemini 3）会将 content 返回为类型化
+    数据块列表，例如 [{'type': 'reasoning', ...}, {'type': 'text', 'text': '...'}]。
+    下游 Agent 需要 response.content 为字符串，因此提取并拼接文本块，丢弃推理/元数据块。
     """
     content = response.content
     if isinstance(content, list):
@@ -22,44 +21,43 @@ def normalize_content(response):
             for item in content
         ]
         response.content = "\n".join(t for t in texts if t)
-        logger.debug("Normalized list content to string (%d text blocks)", len(texts))
+        logger.debug("已将列表内容规范化为字符串（%d 个文本块）", len(texts))
     return response
 
 
 class BaseLLMClient(ABC):
-    """Abstract base class for LLM clients."""
+    """LLM 客户端抽象基类。"""
 
     def __init__(self, model: str, base_url: str | None = None, **kwargs):
         self.model = model
         self.base_url = base_url
         self.kwargs = kwargs
-        logger.debug("Initialized %s for model=%s base_url=%s", self.__class__.__name__, model, base_url)
+        logger.debug("已初始化 %s：model=%s base_url=%s", self.__class__.__name__, model, base_url)
 
     def get_provider_name(self) -> str:
-        """Return the provider name used in warning messages."""
+        """返回警告消息中使用的服务商名称。"""
         provider = getattr(self, "provider", None)
         if provider:
             return str(provider)
         return self.__class__.__name__.removesuffix("Client").lower()
 
     def warn_if_unknown_model(self) -> None:
-        """Warn when the model is outside the known list for the provider."""
+        """当模型不在服务商已知列表中时发出警告。"""
         if self.validate_model():
             return
 
         message = (
-            f"Model '{self.model}' is not in the known model list for "
-            f"provider '{self.get_provider_name()}'. Continuing anyway."
+            f"模型 '{self.model}' 不在服务商 '{self.get_provider_name()}' 的已知列表中。将继续运行。"
         )
         logger.warning("%s", message)
         warnings.warn(message, RuntimeWarning, stacklevel=2)
 
     @abstractmethod
     def get_llm(self) -> Any:
-        """Return the configured LLM instance."""
+        """返回已配置的 LLM 实例。"""
         pass
 
     @abstractmethod
     def validate_model(self) -> bool:
-        """Validate that the model is supported by this client."""
+        """校验该客户端是否支持此模型。"""
         pass

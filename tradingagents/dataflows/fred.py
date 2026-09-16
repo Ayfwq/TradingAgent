@@ -1,12 +1,10 @@
-"""FRED (Federal Reserve Economic Data) macro vendor.
+"""FRED（Federal Reserve Economic Data）宏观数据供应商。
 
-Fetches macroeconomic time series — policy rates, Treasury yields, inflation,
-labor, growth — from the St. Louis Fed's free API. Used by the news analyst to
-ground macro commentary in actual numbers rather than headlines alone.
+通过圣路易斯联储免费 API 获取宏观经济时间序列，包括政策利率、国债收益率、通胀、
+就业和增长数据。供新闻分析师使用真实数字支撑宏观评论，而不只依赖新闻标题。
 
-A free API key (https://fred.stlouisfed.org/docs/api/api_key.html) is read from
-``FRED_API_KEY``; if it is unset the vendor raises ``FredNotConfiguredError`` so
-the routing layer treats it as "unavailable" rather than a hard crash.
+从 ``FRED_API_KEY`` 读取免费 API 密钥；未设置时抛出 ``FredNotConfiguredError``，
+让路由层将其视为“不可用”，而不是导致程序崩溃。
 """
 import logging
 import os
@@ -20,22 +18,20 @@ logger = logging.getLogger(__name__)
 
 FRED_API_BASE = "https://api.stlouisfed.org/fred"
 
-# Network timeout (seconds) so a stalled request can't hang the agents,
-# mirroring the Alpha Vantage client.
+# 网络超时时间（秒），避免卡住的请求阻塞 Agent，与 Alpha Vantage 客户端保持一致。
 REQUEST_TIMEOUT = 30
 
-# Default trailing window when the caller does not specify one. A year captures
-# the trend and the year-over-year base for most monthly/quarterly series.
+# 调用方未指定时的默认回溯窗口。一年可以覆盖大多数月度/季度序列的趋势及同比基数。
 DEFAULT_LOOKBACK_DAYS = 365
 
-# Rows cap for the rendered table: recent values matter most for a decision, and
-# daily series (yields, VIX) over a long window would otherwise flood context.
+# 渲染表格的行数上限：近期值对决策最重要，长窗口的日频序列（收益率、VIX）
+# 否则会淹没上下文。
 MAX_ROWS = 40
 
-# Curated human-friendly aliases -> FRED series IDs. Anything not listed is used
-# verbatim as a raw FRED series ID, so power users are never limited to this set.
+# 精选的易读别名 -> FRED 序列 ID。未列出的值会原样作为 FRED 原始序列 ID
+# 使用，因此高级用户不会受此列表限制。
 MACRO_SERIES = {
-    # Policy rate & Treasury yields
+    # 政策利率与国债收益率。
     "fed_funds_rate": "FEDFUNDS",
     "federal_funds_rate": "FEDFUNDS",
     "fed_funds": "FEDFUNDS",
@@ -44,28 +40,28 @@ MACRO_SERIES = {
     "30y_treasury": "DGS30",
     "10y_2y_spread": "T10Y2Y",
     "yield_curve": "T10Y2Y",
-    # Inflation
+    # 通胀。
     "cpi": "CPIAUCSL",
     "core_cpi": "CPILFESL",
     "pce": "PCEPI",
     "core_pce": "PCEPILFE",
     "inflation_expectations": "T10YIE",
-    # Growth & output
+    # 增长与产出。
     "real_gdp": "GDPC1",
     "gdp": "GDP",
     "industrial_production": "INDPRO",
-    # Labor
+    # 就业。
     "unemployment_rate": "UNRATE",
     "unemployment": "UNRATE",
     "nonfarm_payrolls": "PAYEMS",
     "payrolls": "PAYEMS",
     "initial_claims": "ICSA",
-    # Money & markets
+    # 货币与市场。
     "m2": "M2SL",
     "money_supply": "M2SL",
     "vix": "VIXCLS",
     "dollar_index": "DTWEXBGS",
-    # Sentiment & housing
+    # 情绪与住房。
     "consumer_sentiment": "UMCSENT",
     "housing_starts": "HOUST",
     "retail_sales": "RSAFS",
@@ -73,62 +69,60 @@ MACRO_SERIES = {
 
 
 class FredNotConfiguredError(VendorNotConfiguredError):
-    """Raised when FRED is selected but no API key is configured.
+    """选择 FRED 但未配置 API 密钥时抛出。
 
-    A VendorNotConfiguredError (and thus still a ValueError), so the routing
-    layer's "vendor unavailable" handling and existing ValueError callers both
-    keep working.
+    该异常继承 VendorNotConfiguredError（因此仍是 ValueError），可以继续兼容
+    路由层的“供应商不可用”处理和现有 ValueError 调用方。
     """
 
 
 def get_api_key() -> str:
-    """Retrieve the FRED API key from the environment."""
+    """从环境变量读取 FRED API 密钥。"""
     api_key = os.getenv("FRED_API_KEY")
     if not api_key:
         raise FredNotConfiguredError(
-            "FRED_API_KEY environment variable is not set. Get a free key at "
+            "未设置 FRED_API_KEY 环境变量。可在以下地址获取免费密钥："
             "https://fred.stlouisfed.org/docs/api/api_key.html."
         )
     return api_key
 
 
 def _resolve_series_id(indicator: str) -> str:
-    """Map a friendly alias to a FRED series ID, or pass a raw ID through.
+    """将友好别名映射为 FRED 序列 ID，或直接透传原始 ID。
 
-    Raises ``ValueError`` when the input is neither a known alias nor a plausible
-    series ID — typically a descriptive phrase the LLM passed instead (e.g.
-    "bank of japan rate"). FRED IDs are short and alphanumeric, so this rejects
-    it up front with guidance rather than letting it 400 the API.
+    当输入既不是已知别名，也不是合理的序列 ID 时抛出 ``ValueError``，通常是因为
+    LLM 传入了描述性短语（例如 "bank of japan rate"）。FRED ID 短且只含字母数字，
+    因此提前拒绝并给出提示，避免 API 返回 400。
     """
     key = indicator.strip().lower().replace(" ", "_").replace("-", "_")
     if key in MACRO_SERIES:
         return MACRO_SERIES[key]
     candidate = indicator.strip().upper()
-    # FRED series IDs never contain whitespace and are short; reject anything
-    # else (a descriptive phrase the LLM passed) rather than 400ing the API.
+    # FRED 序列 ID 不含空格且长度较短；拒绝其他输入（LLM 传入的描述性短语），
+    # 避免 API 返回 400。
     if not candidate or len(candidate) > 30 or any(c.isspace() for c in candidate):
         raise ValueError(
-            f"'{indicator}' is not a known macro alias or a valid FRED series ID. "
-            f"Use an alias (e.g. 'cpi', 'unemployment', '10y_treasury') or a raw "
-            f"FRED series ID (e.g. 'CPIAUCSL')."
+            f"'{indicator}' 不是已知宏观别名或有效的 FRED 序列 ID。"
+            f"请使用别名（例如 'cpi'、'unemployment'、'10y_treasury'）或原始"
+            f" FRED 序列 ID（例如 'CPIAUCSL'）。"
         )
     return candidate
 
 
 def _request(path: str, params: dict) -> dict:
-    """GET a FRED endpoint, surfacing FRED's JSON error body on a bad request."""
+    """请求 FRED 接口，在请求失败时暴露 FRED 返回的 JSON 错误内容。"""
     api_params = {**params, "api_key": get_api_key(), "file_type": "json"}
     response = requests.get(
         f"{FRED_API_BASE}/{path}", params=api_params, timeout=REQUEST_TIMEOUT
     )
-    # FRED returns 400 with a JSON {"error_message": ...} for unknown series IDs
-    # or malformed params; turn that into a clear, actionable error.
+    # FRED 会针对未知序列 ID 或错误参数返回包含 error_message 的 400 JSON；
+    # 将其转换为清晰且可处理的错误。
     if response.status_code == 400:
         try:
             message = response.json().get("error_message", response.text)
         except ValueError:
             message = response.text
-        raise ValueError(f"FRED request failed: {message}")
+        raise ValueError(f"FRED 请求失败：{message}")
     response.raise_for_status()
     return response.json()
 
@@ -138,18 +132,17 @@ def get_macro_data(
     curr_date: str,
     look_back_days: int | None = None,
 ) -> str:
-    """Fetch a FRED macroeconomic series as a formatted markdown report.
+    """获取 FRED 宏观经济序列，并格式化为 Markdown 报告。
 
     Args:
-        indicator: A friendly alias (e.g. "cpi", "unemployment", "10y_treasury")
-            or a raw FRED series ID (e.g. "CPIAUCSL", "DGS10").
-        curr_date: End of the window (yyyy-mm-dd); no later observations are
-            returned, so a past date never leaks future data.
-        look_back_days: Trailing window length; ``None`` uses DEFAULT_LOOKBACK_DAYS.
+        indicator：友好别名（例如 "cpi"、"unemployment"、"10y_treasury"）或
+            原始 FRED 序列 ID（例如 "CPIAUCSL"、"DGS10"）。
+        curr_date：窗口结束日期（yyyy-mm-dd）；不会返回更晚的观测值，
+            因此历史日期不会泄漏未来数据。
+        look_back_days：回溯窗口长度；``None`` 使用 DEFAULT_LOOKBACK_DAYS。
 
     Returns:
-        A markdown report with the series title, units, frequency, the latest
-        value, the change over the window, and a recent observation table.
+        包含序列标题、单位、频率、最新值、窗口变化和近期观测表的 Markdown 报告。
     """
     if look_back_days is None:
         look_back_days = DEFAULT_LOOKBACK_DAYS
@@ -157,19 +150,18 @@ def get_macro_data(
     end_dt = datetime.strptime(curr_date, "%Y-%m-%d")
     start_date = (end_dt - timedelta(days=look_back_days)).strftime("%Y-%m-%d")
 
-    # Invalid LLM-supplied indicator: return guidance rather than raising, so a
-    # bad argument doesn't abort the run (the routing layer also degrades macro
-    # data, but a specific message is more useful to the analyst).
+    # LLM 提供的指标无效时返回指导而不是抛出异常，避免错误参数中止运行。
+    # 路由层也会降级宏观数据，但具体提示对分析师更有用。
     try:
         series_id = _resolve_series_id(indicator)
     except ValueError as e:
-        return f"FRED: {e}"
+        return f"FRED：{e}"
 
     meta = _request("series", {"series_id": series_id}).get("seriess") or []
     if not meta:
         return (
-            f"FRED series '{series_id}' not found. Pass a known alias "
-            f"(e.g. 'cpi', 'unemployment') or a valid FRED series ID."
+            f"找不到 FRED 序列 '{series_id}'。请传入已知别名（例如 'cpi'、'unemployment'）"
+            f"或有效的 FRED 序列 ID。"
         )
     info = meta[0]
     title = info.get("title", series_id)
@@ -187,7 +179,7 @@ def get_macro_data(
         },
     ).get("observations", [])
 
-    # FRED encodes a missing observation as ".".
+    # FRED 用 "." 表示缺失观测值。
     points = [
         (o["date"], o["value"])
         for o in observations
@@ -195,17 +187,17 @@ def get_macro_data(
     ]
 
     header = (
-        f"## FRED: {title} ({series_id})\n"
-        f"- Units: {units}\n"
-        f"- Frequency: {frequency}"
+        f"## FRED：{title}（{series_id}）\n"
+        f"- 单位：{units}\n"
+        f"- 频率：{frequency}"
         f"{f' ({seasonal})' if seasonal else ''}\n"
-        f"- Window: {start_date} to {curr_date}\n"
+        f"- 窗口：{start_date} 至 {curr_date}\n"
     )
 
     if not points:
         return header + (
-            f"\nNo observations for {series_id} in this window. The series may "
-            f"report less frequently than the window length; widen look_back_days."
+            f"\n该窗口内没有 {series_id} 的观测值。该序列的发布频率可能低于窗口长度，"
+            f"请增大 look_back_days。"
         )
 
     first_date, first_val = points[0]
@@ -215,21 +207,21 @@ def get_macro_data(
         base = float(first_val)
         pct = f" ({delta / base * 100:+.2f}%)" if base != 0 else ""
         summary = (
-            f"\n**Latest:** {last_val} ({last_date}) | "
-            f"**Change over window:** {delta:+.2f}{pct} "
-            f"from {first_val} ({first_date})\n"
+            f"\n**最新值：** {last_val}（{last_date}）| "
+            f"**窗口变化：** {delta:+.2f}{pct}，"
+            f"从 {first_val}（{first_date}）计算\n"
         )
     except ValueError:
-        summary = f"\n**Latest:** {last_val} ({last_date})\n"
+        summary = f"\n**最新值：** {last_val}（{last_date}）\n"
 
     shown = points
     note = ""
     if len(points) > MAX_ROWS:
         shown = points[-MAX_ROWS:]
-        note = f"\n_(showing the most recent {MAX_ROWS} of {len(points)} observations)_\n"
+        note = f"\n_（显示最近 {MAX_ROWS} 条，共 {len(points)} 条观测）_\n"
 
     table = (
-        "\n| Date | Value |\n| --- | --- |\n"
+        "\n| 日期 | 数值 |\n| --- | --- |\n"
         + "\n".join(f"| {d} | {v} |" for d, v in shown)
         + "\n"
     )

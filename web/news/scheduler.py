@@ -19,7 +19,6 @@ from web.metrics import (
     NEWS_ITEMS_TOTAL,
     NEWS_SOURCE_DURATION_SECONDS,
     NEWS_SOURCE_RESULTS_TOTAL,
-    NEWS_WORKER_HEARTBEAT_AGE_SECONDS,
 )
 from web.news.config import NewsSettings, SourceConfig
 from web.news.models import FetchRunStats, utc_now
@@ -110,7 +109,7 @@ class NewsScheduler:
                 try:
                     result = future.result()
                 except Exception as exc:  # noqa: BLE001  理论上已隔离，兜底
-                    logger.exception("Source %s crashed unexpectedly", source.source_id)
+                    logger.exception("来源 %s 意外崩溃", source.source_id)
                     result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
                 if result.get("ok"):
                     summary["sources_ok"] += 1
@@ -121,7 +120,12 @@ class NewsScheduler:
                 summary["filtered"] += result.get("filtered_count", 0)
                 summary["ai_summaries"] += result.get("ai_count", 0)
 
-        self.repo.prune(self.settings.retention_days)
+        deleted_items = self.repo.prune(self.settings.retention_days)
+        if deleted_items:
+            logger.info(
+                "新闻过期数据已清理：删除 %d 条，保留期 %d 天",
+                deleted_items, self.settings.retention_days,
+            )
         self.heartbeat()
         duration = time.monotonic() - started
         # 更新 Prometheus 指标
@@ -138,7 +142,7 @@ class NewsScheduler:
         except Exception:  # noqa: BLE001
             pass
         logger.info(
-            "News cycle done in %.1fs: %d ok / %d failed, +%d new, %d dup, %d filtered, %d AI",
+            "新闻获取周期完成，用时 %.1f 秒：%d 个成功 / %d 个失败，新增 %d，重复 %d，过滤 %d，AI 摘要 %d",
             duration,
             summary["sources_ok"], summary["sources_failed"],
             summary["new_items"], summary["duplicates"], summary["filtered"],
@@ -166,7 +170,7 @@ class NewsScheduler:
             except SourceError as exc:
                 last_error = str(exc)
                 logger.warning(
-                    "Source %s attempt %d/%d failed: %s",
+                    "来源 %s 第 %d/%d 次尝试失败：%s",
                     source.source_id, attempt + 1, MAX_ATTEMPTS, last_error,
                 )
                 if attempt < MAX_ATTEMPTS - 1:
@@ -174,7 +178,7 @@ class NewsScheduler:
             except Exception as exc:  # noqa: BLE001  意外崩溃也计为一次失败尝试
                 last_error = f"{type(exc).__name__}: {exc}"
                 logger.exception(
-                    "Source %s attempt %d/%d crashed", source.source_id, attempt + 1, MAX_ATTEMPTS,
+                    "来源 %s 第 %d/%d 次尝试崩溃", source.source_id, attempt + 1, MAX_ATTEMPTS,
                 )
                 if attempt < MAX_ATTEMPTS - 1:
                     time.sleep(min(2**attempt, 8))
@@ -255,7 +259,7 @@ class NewsScheduler:
             signal.signal(signal.SIGTERM, self._request_stop)
         signal.signal(signal.SIGINT, self._request_stop)
         logger.info(
-            "News worker started: %d source(s), interval=%dmin, db=%s",
+            "新闻工作器已启动：%d 个来源，间隔 %d 分钟，数据库=%s",
             len(self.sources), self.settings.fetch_interval_minutes,
             self.settings.database_path,
         )
@@ -263,15 +267,15 @@ class NewsScheduler:
             try:
                 self.run_once()
             except Exception:  # noqa: BLE001
-                logger.exception("News cycle failed; continuing")
+                logger.exception("新闻获取周期失败，将继续运行")
             sleep_seconds = (
                 self.settings.fetch_interval_minutes * 60
                 + random.uniform(0, 60)
             )
             if self._stop_event.wait(timeout=sleep_seconds):
                 break
-        logger.info("News worker stopped")
+        logger.info("新闻工作器已停止")
 
     def _request_stop(self, signum, frame) -> None:  # noqa: ARG002
-        logger.info("Received signal %s, stopping after current cycle", signum)
+        logger.info("收到信号 %s，将在当前周期结束后停止", signum)
         self._stop_event.set()

@@ -13,38 +13,36 @@ logger = logging.getLogger(__name__)
 
 API_BASE_URL = "https://www.alphavantage.co/query"
 
-# Network timeout (seconds) so a stalled Alpha Vantage request can't hang the
-# CLI/agents indefinitely (#990).
+# 网络超时时间（秒），避免 Alpha Vantage 请求卡住调用方/Agent（#990）。
 REQUEST_TIMEOUT = 30
 
 
 class AlphaVantageNotConfiguredError(VendorNotConfiguredError):
-    """Raised when Alpha Vantage is selected but no API key is configured.
+    """选择 Alpha Vantage 但未配置 API 密钥时抛出。
 
-    A VendorNotConfiguredError (and thus still a ValueError), so the routing
-    layer's "vendor unavailable" handling and existing ValueError callers both
-    keep working.
+    该异常继承 VendorNotConfiguredError（因此仍是 ValueError），可以继续兼容
+    路由层的“供应商不可用”处理和现有 ValueError 调用方。
     """
     pass
 
 
 def get_api_key() -> str:
-    """Retrieve the API key for Alpha Vantage from environment variables."""
+    """从环境变量读取 Alpha Vantage API 密钥。"""
     api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
     if not api_key:
-        logger.warning("ALPHA_VANTAGE_API_KEY environment variable is not set")
+        logger.warning("未设置 ALPHA_VANTAGE_API_KEY 环境变量")
         raise AlphaVantageNotConfiguredError(
-            "ALPHA_VANTAGE_API_KEY environment variable is not set."
+            "未设置 ALPHA_VANTAGE_API_KEY 环境变量。"
         )
     return api_key
 
 def format_datetime_for_api(date_input) -> str:
-    """Convert various date formats to YYYYMMDDTHHMM format required by Alpha Vantage API."""
+    """将多种日期格式转换为 Alpha Vantage API 要求的 YYYYMMDDTHHMM 格式。"""
     if isinstance(date_input, str):
-        # If already in correct format, return as-is
+        # 如果已经是正确格式，直接返回。
         if len(date_input) == 13 and 'T' in date_input:
             return date_input
-        # Try to parse common date formats
+        # 尝试解析常见日期格式。
         try:
             dt = datetime.strptime(date_input, "%Y-%m-%d")
             return dt.strftime("%Y%m%dT0000")
@@ -53,24 +51,24 @@ def format_datetime_for_api(date_input) -> str:
                 dt = datetime.strptime(date_input, "%Y-%m-%d %H:%M")
                 return dt.strftime("%Y%m%dT%H%M")
             except ValueError:
-                raise ValueError(f"Unsupported date format: {date_input}") from None
+                raise ValueError(f"不支持的日期格式：{date_input}") from None
     elif isinstance(date_input, datetime):
         return date_input.strftime("%Y%m%dT%H%M")
     else:
-        raise ValueError(f"Date must be string or datetime object, got {type(date_input)}")
+        raise ValueError(f"日期必须是字符串或 datetime 对象，实际类型为 {type(date_input)}")
 
 class AlphaVantageRateLimitError(VendorRateLimitError):
-    """Raised when the Alpha Vantage API rate limit is exceeded."""
+    """超过 Alpha Vantage API 限流阈值时抛出。"""
     pass
 
 def _make_api_request(function_name: str, params: dict) -> dict | str:
-    """Helper function to make API requests and handle responses.
+    """发起 API 请求并处理响应。
 
     Raises:
-        AlphaVantageRateLimitError: When API rate limit is exceeded
+        AlphaVantageRateLimitError：超过 API 限流阈值时抛出。
     """
-    logger.debug("alpha vantage API request: function=%s params=%s", function_name, params)
-    # Create a copy of params to avoid modifying the original
+    logger.debug("Alpha Vantage API 请求：function=%s，params=%s", function_name, params)
+    # 复制 params，避免修改原始参数。
     api_params = params.copy()
     api_params.update({
         "function": function_name,
@@ -78,14 +76,14 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
         "source": "trading_agents",
     })
 
-    # Handle entitlement parameter if present in params or global variable
+    # 处理 params 或全局变量中的 entitlement 参数。
     current_entitlement = globals().get('_current_entitlement')
     entitlement = api_params.get("entitlement") or current_entitlement
 
     if entitlement:
         api_params["entitlement"] = entitlement
     elif "entitlement" in api_params:
-        # Remove entitlement if it's None or empty
+        # 如果 entitlement 为空，则删除。
         api_params.pop("entitlement", None)
 
     response = requests.get(API_BASE_URL, params=api_params, timeout=REQUEST_TIMEOUT)
@@ -93,72 +91,70 @@ def _make_api_request(function_name: str, params: dict) -> dict | str:
 
     response_text = response.text
 
-    # Error responses are JSON; data responses are usually CSV (or data-keyed
-    # JSON). A non-JSON body is normal data.
+    # 错误响应为 JSON；数据响应通常是 CSV（或以数据为键的 JSON）。
+    # 非 JSON 响应体属于正常数据。
     try:
         response_json = json.loads(response_text)
     except json.JSONDecodeError:
-        logger.debug("alpha vantage API response for function=%s is non-JSON (%d bytes)", function_name, len(response_text))
+        logger.debug("Alpha Vantage API 的 function=%s 响应不是 JSON（%d 字节）", function_name, len(response_text))
         return response_text
 
-    # Alpha Vantage reports problems via "Information" / "Note". Classify so a
-    # genuine rate limit and an invalid/missing key aren't conflated (#991):
-    # rate-limit phrasing is checked first because those notices also mention
-    # "API key" ("your API key ... 25 requests per day").
+    # Alpha Vantage 通过 "Information" / "Note" 报告问题。分类处理，避免将
+    # 真正的限流与密钥无效/缺失混淆（#991）。先检查限流措辞，因为这些提示也会
+    # 提到 "API key"（例如“你的 API key 每天可请求 25 次”）。
     notice = response_json.get("Information") or response_json.get("Note")
     if notice:
         low = notice.lower()
         if any(m in low for m in ("rate limit", "requests per day", "call frequency", "premium")):
-            logger.warning("alpha vantage rate limit hit for function=%s: %s", function_name, notice)
-            raise AlphaVantageRateLimitError(f"Alpha Vantage rate limit exceeded: {notice}")
+            logger.warning("Alpha Vantage 的 function=%s 触发限流：%s", function_name, notice)
+            raise AlphaVantageRateLimitError(f"已超过 Alpha Vantage 限流阈值：{notice}")
         if "api key" in low or "apikey" in low:
-            logger.warning("alpha vantage API key invalid or missing for function=%s: %s", function_name, notice)
-            # Reuse the existing "not configured" error so a bad key surfaces as
-            # a real, actionable failure rather than a mislabeled rate limit (#991).
-            raise AlphaVantageNotConfiguredError(f"Alpha Vantage API key invalid or missing: {notice}")
+            logger.warning("Alpha Vantage 的 function=%s API 密钥无效或缺失：%s", function_name, notice)
+            # 复用现有“未配置”异常，让错误密钥显示为真实且可处理的失败，
+            # 而不是被错误标记为限流（#991）。
+            raise AlphaVantageNotConfiguredError(f"Alpha Vantage API 密钥无效或缺失：{notice}")
 
-    logger.debug("alpha vantage API response for function=%s is JSON (%d bytes)", function_name, len(response_text))
+    logger.debug("Alpha Vantage API 的 function=%s 响应为 JSON（%d 字节）", function_name, len(response_text))
     return response_text
 
 
 
 def _filter_csv_by_date_range(csv_data: str, start_date: str, end_date: str) -> str:
     """
-    Filter CSV data to include only rows within the specified date range.
+    过滤 CSV 数据，仅保留指定日期范围内的行。
 
     Args:
-        csv_data: CSV string from Alpha Vantage API
-        start_date: Start date in yyyy-mm-dd format
-        end_date: End date in yyyy-mm-dd format
+        csv_data：来自 Alpha Vantage API 的 CSV 字符串。
+        start_date：yyyy-mm-dd 格式的开始日期。
+        end_date：yyyy-mm-dd 格式的结束日期。
 
     Returns:
-        Filtered CSV string
+        过滤后的 CSV 字符串。
     """
     logger.debug("_filter_csv_by_date_range called for %s..%s", start_date, end_date)
     if not csv_data or csv_data.strip() == "":
-        logger.debug("alpha vantage CSV data is empty for %s..%s", start_date, end_date)
+        logger.debug("Alpha Vantage CSV 数据为空：%s..%s", start_date, end_date)
         return csv_data
 
     try:
-        # Parse CSV data
+        # 解析 CSV 数据。
         df = pd.read_csv(StringIO(csv_data))
 
-        # Assume the first column is the date column (timestamp)
+        # 假设第一列是日期列（时间戳）。
         date_col = df.columns[0]
         df[date_col] = pd.to_datetime(df[date_col])
 
-        # Filter by date range
+        # 按日期范围过滤。
         start_dt = pd.to_datetime(start_date)
         end_dt = pd.to_datetime(end_date)
 
         filtered_df = df[(df[date_col] >= start_dt) & (df[date_col] <= end_dt)]
-        logger.debug("alpha vantage CSV filtered from %d to %d rows (%s..%s)", len(df), len(filtered_df), start_date, end_date)
+        logger.debug("Alpha Vantage CSV 已从 %d 行过滤为 %d 行（%s..%s）", len(df), len(filtered_df), start_date, end_date)
 
-        # Convert back to CSV string
+        # 转回 CSV 字符串。
         return filtered_df.to_csv(index=False)
 
     except Exception as e:
-        # If filtering fails, return original data with a warning
-        logger.warning("failed to filter alpha vantage CSV by date range %s..%s: %s", start_date, end_date, e)
-        print(f"Warning: Failed to filter CSV data by date range: {e}")
+        # 过滤失败时返回原始数据并记录警告。
+        logger.warning("按日期范围 %s..%s 过滤 Alpha Vantage CSV 失败：%s", start_date, end_date, e)
         return csv_data

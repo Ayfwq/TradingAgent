@@ -1,8 +1,8 @@
-"""Graph-level smoke test with a fake LLM: verifies the parallel analyst
-fan-out compiles and the whole pipeline (analysts -> debate -> RM -> trader
--> risk -> PM) runs to END without touching the real LLM gateway.
+"""使用伪 LLM 的图级冒烟测试：验证并行分析师扇出能够编译，且完整流水线
+（分析师 -> 辩论 -> 研究经理 -> 交易员 -> 风险管理 -> 投资组合经理）能够
+在不访问真实 LLM 网关的情况下运行到 END。
 
-Usage:  uv run --quiet python scripts/verify_parallel_graph.py
+用法：uv run --quiet python scripts/verify_parallel_graph.py
 """
 
 from __future__ import annotations
@@ -20,13 +20,13 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 FAKE_TEXT = (
-    "FAKE_ANALYSIS: This is a deterministic stub report used to verify the "
-    "parallel graph wiring. FINAL TRANSACTION PROPOSAL: **HOLD**"
+    "FAKE_ANALYSIS：这是用于验证并行图连接的确定性伪报告。"
+    "FINAL TRANSACTION PROPOSAL: **HOLD**"
 )
 
 
 class FakeLLM(BaseChatModel):
-    """Minimal chat model: never calls tools, always returns FAKE_TEXT."""
+    """最小聊天模型：从不调用工具，始终返回 FAKE_TEXT。"""
 
     @property
     def _llm_type(self) -> str:
@@ -38,8 +38,8 @@ class FakeLLM(BaseChatModel):
         )
 
     def bind_tools(self, tools, **kwargs):
-        # Analysts bind tools; a fake that ignores them exercises the
-        # no-tool-call path (report emitted on first turn).
+        # 分析师会绑定工具；忽略工具的伪模型用于测试不调用工具的路径
+        #（第一轮就生成报告）。
         return self
 
 
@@ -87,35 +87,35 @@ def main() -> int:
         ok = True
         for name, report in reports.items():
             filled = bool(report and report.strip())
-            print(f"{name}: {'OK' if filled else 'EMPTY'}")
+            print(f"{name}：{'正常' if filled else '为空'}")
             ok = ok and filled
 
         decision = final_state.get("final_trade_decision", "")
-        print(f"final_trade_decision: {'OK' if decision.strip() else 'EMPTY'}")
+        print(f"最终交易决策：{'正常' if decision.strip() else '为空'}")
         ok = ok and bool(decision.strip())
         print(f"signal: {signal}")
 
         debate = final_state.get("investment_debate_state", {})
         print(
-            "debate history length:",
+            "辩论历史长度：",
             len(debate.get("history", "")),
-            "| bull:",
+            "| 看多：",
             len(debate.get("bull_history", "")),
-            "| bear:",
+            "| 看空：",
             len(debate.get("bear_history", "")),
         )
         ok = ok and debate.get("count", 0) >= 2
 
         risk = final_state.get("risk_debate_state", {})
         print(
-            "risk history length:",
+            "风险历史长度：",
             len(risk.get("history", "")),
-            "| count:",
+            "| 轮数：",
             risk.get("count", 0),
         )
         ok = ok and risk.get("count", 0) >= 3
 
-        print("\nPARALLEL GRAPH SMOKE:", "PASSED" if ok else "FAILED")
+        print("\n并行图冒烟测试：", "通过" if ok else "失败")
         return 0 if ok else 1
     finally:
         tg.create_llm_client = orig_create

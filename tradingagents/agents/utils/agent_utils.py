@@ -6,7 +6,7 @@ from typing import Any
 import yfinance as yf
 from langchain_core.messages import HumanMessage, RemoveMessage
 
-# Import tools from separate utility files
+# 从独立的工具模块导入数据工具。
 from tradingagents.agents.utils.ashare_context_tools import (
     get_earnings_forecast,
     get_lhb_context,
@@ -31,8 +31,8 @@ from tradingagents.agents.utils.news_data_tools import (
 from tradingagents.agents.utils.prediction_markets_tools import get_prediction_markets
 from tradingagents.agents.utils.technical_indicators_tools import get_indicators
 
-# Public surface: the data tools are imported here so agents and the graph
-# import them from one place, plus the instrument/language helpers defined below.
+# 公共导出面：数据工具集中在此处导出，Agent 和图可以从同一位置导入；
+# 下方还定义了标的与语言相关的辅助函数。
 __all__ = [
     "get_stock_data",
     "get_indicators",
@@ -51,6 +51,7 @@ __all__ = [
     "get_limit_up_context",
     "get_sector_context",
     "get_earnings_forecast",
+    "is_ashare_ticker",
     "build_instrument_context",
     "resolve_instrument_identity",
     "get_instrument_context_from_state",
@@ -61,26 +62,40 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def get_language_instruction() -> str:
-    """Return a prompt instruction for the configured output language.
+def is_ashare_ticker(ticker: str) -> bool:
+    """判断 ``ticker`` 是否为受支持的中国内地 A 股代码。
 
-    Returns an explicit instruction when a non-English output language is
-    configured.  The instruction covers reports, reasoning, tool-call text,
-    and intermediate agent messages so a localized run does not mix languages.
-    Applied to every agent whose output reaches the saved report —
-    analysts, researchers, debaters, research manager, trader, and
-    portfolio manager — so a non-English run produces a fully localized
-    report rather than a mix of languages.
+    支持带上海、深圳、北京交易所后缀的代码，以及 akshare 已支持的六位纯数字
+    代码。该检查不访问网络，分析师节点可以在调用 LLM 前据此决定暴露哪些工具
+    schema。
+    """
+    if not isinstance(ticker, str):
+        return False
+    raw = ticker.strip().upper()
+    for suffix in (".SS", ".SH", ".SZ", ".BJ"):
+        if raw.endswith(suffix):
+            code = raw[: -len(suffix)]
+            return len(code) == 6 and code.isdigit()
+    return len(raw) == 6 and raw.isdigit() and raw[0] in "012345689"
+
+
+def get_language_instruction() -> str:
+    """返回配置的输出语言对应的提示词指令。
+
+    配置非英语输出时返回明确指令。该指令覆盖报告、推理、工具调用文本和
+    Agent 中间消息，避免本地化运行混用多种语言。所有输出会进入已保存报告的
+    Agent（分析师、研究员、辩论员、研究经理、交易员和投资组合经理）都会应用
+    该指令，从而生成完整本地化的报告。
     """
     from tradingagents.dataflows.config import get_config
     lang = get_config().get("output_language", "English")
     if lang.strip().lower() == "english":
         return ""
     if lang.strip().lower() in ("chinese", "zh", "简体中文", "中文"):
-        # Richer than the generic directive: anchors A-share terminology so a
-        # Chinese report reads like a native research note, not a translation.
+        # 比通用指令更具体：固定 A 股术语，使中文报告更像原生研究笔记，而不是
+        # 直译文本。
         return (
-            " 请将所有回复、分析过程、研究员之间的讨论、工具调用中的自然语言参数、"
+            " Write your entire response in 简体中文。请将所有回复、分析过程、研究员之间的讨论、工具调用中的自然语言参数、"
             "日志摘要和最终报告全部使用简体中文；股票代码、公司英文名、数据源名称、"
             "JSON 键名和 Markdown 语法可以保留原样。使用标准中文金融术语："
             "买入/增持/持有/减持/卖出，市盈率/市净率/净资产收益率，止损/目标价/仓位，"
@@ -90,7 +105,7 @@ def get_language_instruction() -> str:
 
 
 def _clean_identity_value(value: Any) -> str | None:
-    """Return a trimmed string, or None for empty / placeholder-ish values."""
+    """返回去除首尾空白的字符串；空值或占位值返回 None。"""
     if not isinstance(value, str):
         return None
     cleaned = value.strip()
@@ -101,28 +116,25 @@ def _clean_identity_value(value: Any) -> str | None:
 
 @functools.lru_cache(maxsize=256)
 def resolve_instrument_identity(ticker: str) -> dict:
-    """Resolve deterministic identity metadata (company name, sector, …) for a ticker.
+    """确定性解析代码对应的身份元数据（公司名、行业等）。
 
-    This exists to stop the pipeline from hallucinating a *different* company
-    when a chart pattern suggests a different industry than the real one
-    (#814): without a ground-truth name, the market analyst would pattern-match
-    the price action to a narrative and invent an identity that then cascaded
-    through every downstream agent.
+    这样可以避免图表形态暗示了其他行业时，流水线臆造出另一家公司（#814）。
+    如果没有真实公司名，市场分析师可能把价格走势套入某个叙事并虚构身份，
+    这个错误随后会扩散到所有下游 Agent。
 
-    Best-effort by design: if yfinance is unavailable, rate-limited, or doesn't
-    recognise the ticker, we return ``{}`` and the caller falls back to
-    ticker-only context rather than failing before analysis starts. Cached so
-    the lookup happens at most once per ticker per process.
+    该解析按尽力而为设计：如果 yfinance 不可用、触发限流或无法识别代码，
+    返回 ``{}``，调用方退回仅含代码的上下文，不会在分析开始前直接失败。
+    结果会缓存，每个进程对同一代码最多查询一次。
 
-    The symbol is normalized first (e.g. ``XAUUSD`` -> ``GC=F``) so identity
-    resolves for the same instrument the price path actually fetches (#983).
+    会先标准化代码（例如 ``XAUUSD`` -> ``GC=F``），确保身份解析和实际行情
+    请求针对的是同一个标的（#983）。
     """
     from tradingagents.dataflows.symbol_utils import normalize_symbol
 
     try:
         info = yf.Ticker(normalize_symbol(ticker)).info or {}
-    except Exception as exc:  # noqa: BLE001 — fail open, never block the run
-        logger.debug("Could not resolve instrument identity for %s: %s", ticker, exc)
+    except Exception as exc:  # noqa: BLE001 — 容错放行，不阻塞运行
+        logger.debug("无法解析标的身份 %s：%s", ticker, exc)
         return {}
 
     identity: dict[str, str] = {}
@@ -148,59 +160,55 @@ def build_instrument_context(
     asset_type: str = "stock",
     identity: Mapping[str, str] | None = None,
 ) -> str:
-    """Describe the exact instrument so agents preserve identity and ticker.
+    """描述精确的分析标的，确保 Agent 保留身份和代码。
 
-    When ``identity`` is provided (resolved deterministically via
-    :func:`resolve_instrument_identity`), the company name and business
-    classification are injected so agents anchor to the real company rather
-    than pattern-matching the price chart to a wrong one (#814).
+    如果提供了通过 :func:`resolve_instrument_identity` 确定性解析出的
+    ``identity``，就把公司名称和业务分类注入上下文，让 Agent 锚定真实公司，
+    而不是把价格图表误套到其他公司上（#814）。
     """
     is_crypto = asset_type == "crypto"
-    instrument_label = "asset" if is_crypto else "instrument"
+    instrument_label = "加密资产" if is_crypto else "金融标的"
     context = (
-        f"The {instrument_label} to analyze is `{ticker}`. "
-        "Use this exact ticker in every tool call, report, and recommendation, "
-        "preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`, `-USD`)."
+        f"待分析的{instrument_label}是 `{ticker}`。"
+        "所有工具调用、报告和建议都必须使用此精确代码，保留交易所后缀"
+        "（例如 `.TO`、`.L`、`.HK`、`.T`、`-USD`）。"
     )
 
     details = []
     if identity:
         name = identity.get("company_name") or identity.get("name")
         if name:
-            details.append(f"{'Name' if is_crypto else 'Company'}: {name}")
+            details.append(f"{'名称' if is_crypto else '公司'}：{name}")
         sector, industry = identity.get("sector"), identity.get("industry")
         if sector and industry:
-            details.append(f"Business classification: {sector} / {industry}")
+            details.append(f"业务分类：{sector} / {industry}")
         elif sector:
-            details.append(f"Sector: {sector}")
+            details.append(f"行业：{sector}")
         elif industry:
-            details.append(f"Industry: {industry}")
+            details.append(f"细分行业：{industry}")
         if identity.get("exchange"):
-            details.append(f"Exchange: {identity['exchange']}")
+            details.append(f"交易所：{identity['exchange']}")
 
     if details:
         context += (
-            f" Resolved identity: {'; '.join(details)}. "
-            "Do not substitute a different company or ticker unless a tool "
-            "result explicitly disproves this resolved identity."
+            f"已解析身份：{'；'.join(details)}。"
+            "除非工具结果明确推翻该身份，否则不要替换成其他公司或代码。"
         )
 
     if is_crypto:
         context += (
-            " Treat it as a crypto asset rather than a company, and do not "
-            "assume company fundamentals are available."
+            "请将其视为加密资产而非公司，不要假定存在公司基本面数据。"
         )
     return context
 
 
 def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
-    """Return the instrument context for the current run.
+    """返回当前运行的标的上下文。
 
-    Prefers the identity-resolved context computed once at run start and
-    stored on the state (see ``TradingAgentsGraph.resolve_instrument_context``).
-    Falls back to a ticker-only context — with no network lookup — when the
-    state was constructed without it (bare programmatic states, tests), so a
-    consumer is never forced to make a yfinance call mid-graph.
+    优先使用运行开始时计算并写入 state 的身份解析上下文（见
+    ``TradingAgentsGraph.resolve_instrument_context``）。如果构造 state 时没有
+    提供该上下文（例如直接编程调用或测试），则退回仅含代码的上下文且不访问
+    网络，避免调用方在图运行过程中被迫请求 yfinance。
     """
     context = state.get("instrument_context")
     if isinstance(context, str) and context.strip():
@@ -212,39 +220,34 @@ def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
 
 
 def create_msg_delete(messages_key: str = "messages", done_key: str | None = None):
-    """Create a message-clearing node for a specific state channel.
+    """为指定 state 通道创建消息清理节点。
 
-    ``messages_key`` selects which channel to clear (``messages`` for the
-    shared channel, or a per-analyst channel such as ``market_messages`` —
-    the analysts run concurrently, so each must clear only its own scratch
-    messages, never the shared history).
+    ``messages_key`` 决定要清理的通道（共享通道使用 ``messages``，每位分析师
+    使用 ``market_messages`` 等独立通道）。分析师并行运行，因此每个节点只能
+    清理自己的临时消息，不能清理共享历史。
 
-    ``done_key`` (optional) marks the analyst as finished in the shared
-    state. The Analyst Barrier uses it to distinguish "analyst completed but
-    produced an empty report" (rare LLM failure — the debate should still
-    proceed with the remaining reports) from "analyst still running" (the
-    barrier must wait).
+    可选的 ``done_key`` 会在共享 state 中标记分析师完成。Analyst Barrier 用它
+    区分“分析师已完成但报告为空”（LLM 偶发失败，辩论仍应带着其余报告继续）
+    和“分析师仍在运行”（Barrier 必须继续等待）。
     """
 
     def delete_messages(state):
-        """Clear messages and add a context-anchored placeholder.
+        """清理消息并添加带有上下文锚点的占位消息。
 
-        The placeholder must not be a bare ``"Continue"``: some
-        OpenAI-compatible providers interpret that literally as the user task
-        and produce output about the word "continue" instead of analysing the
-        instrument (#888). Anchoring it to the resolved instrument context and
-        date keeps the next analyst on-task even if the provider treats the
-        placeholder as a standalone request.
+        占位消息不能只是 ``"Continue"``：部分 OpenAI 兼容服务商会把它直接
+        当成用户任务，围绕“继续”这个词生成内容，而不是分析标的（#888）。
+        绑定已解析的标的上下文和日期，即使服务商把占位消息当成独立请求，
+        也能让下一位分析师继续处理正确任务。
         """
         messages = state.get(messages_key, [])
         removal_operations = [RemoveMessage(id=m.id) for m in messages]
 
         instrument_context = get_instrument_context_from_state(state)
-        trade_date = state.get("trade_date", "the requested date")
+        trade_date = state.get("trade_date", "请求的日期")
         placeholder = HumanMessage(
             content=(
-                f"Proceed with your assigned analysis for this workflow. "
-                f"{instrument_context} The analysis date is {trade_date}."
+                f"请继续完成你在本流程中负责的分析。"
+                f"{instrument_context} 分析日期为 {trade_date}。"
             )
         )
         update = {messages_key: removal_operations + [placeholder]}

@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 
 
 class NormalizedChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
-    """ChatGoogleGenerativeAI with normalized content output.
+    """输出内容已规范化的 ChatGoogleGenerativeAI。
 
-    Gemini 3 models return content as list of typed blocks.
-    This normalizes to string for consistent downstream handling.
+    Gemini 3 模型会将 content 返回为类型化数据块列表，这里将其规范化为字符串，
+    便于下游统一处理。
     """
 
     def invoke(self, input, config=None, **kwargs):
@@ -21,14 +21,14 @@ class NormalizedChatGoogleGenerativeAI(ChatGoogleGenerativeAI):
 
 
 class GoogleClient(BaseLLMClient):
-    """Client for Google Gemini models."""
+    """Google Gemini 模型客户端。"""
 
     def __init__(self, model: str, base_url: str | None = None, **kwargs):
         super().__init__(model, base_url, **kwargs)
 
     def get_llm(self) -> Any:
-        """Return configured ChatGoogleGenerativeAI instance."""
-        logger.debug("Building Google LLM: provider=google model=%s base_url=%s", self.model, self.base_url)
+        """返回已配置的 ChatGoogleGenerativeAI 实例。"""
+        logger.debug("正在构建 Google LLM：provider=google，model=%s，base_url=%s", self.model, self.base_url)
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
@@ -39,15 +39,14 @@ class GoogleClient(BaseLLMClient):
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
 
-        # Unified api_key maps to provider-specific google_api_key
+        # 统一的 api_key 映射为服务商专属的 google_api_key。
         google_api_key = self.kwargs.get("api_key") or self.kwargs.get("google_api_key")
         if google_api_key:
             llm_kwargs["google_api_key"] = google_api_key
 
-        # Gemini 3.x takes the string ``thinking_level`` (the integer
-        # ``thinking_budget`` was for the now-retired 2.5 line). Pro accepts
-        # low/high; Flash also accepts minimal/medium — so map an unsupported
-        # "minimal" on Pro to the nearest level it does accept.
+        # Gemini 3.x 使用字符串 ``thinking_level``（整数 ``thinking_budget`` 属于
+        # 已退出的 2.5 系列）。Pro 接受 low/high；Flash 还接受 minimal/medium，
+        # 因此将 Pro 不支持的 "minimal" 映射到其接受的最接近等级。
         thinking_level = self.kwargs.get("thinking_level")
         if thinking_level:
             if "pro" in self.model.lower() and thinking_level == "minimal":
@@ -55,11 +54,11 @@ class GoogleClient(BaseLLMClient):
             llm_kwargs["thinking_level"] = thinking_level
 
         llm = NormalizedChatGoogleGenerativeAI(**llm_kwargs)
-        logger.debug("Constructed NormalizedChatGoogleGenerativeAI for model=%s", self.model)
+        logger.debug("已为 model=%s 构建标准化 Google Generative AI 客户端", self.model)
         return llm
 
     def validate_model(self) -> bool:
-        """Validate model for Google."""
+        """校验 Google 模型。"""
         result = validate_model("google", self.model)
-        logger.debug("Model '%s' validation for provider 'google': %s", self.model, result)
+        logger.debug("provider='google' 的模型 '%s' 校验结果：%s", self.model, result)
         return result

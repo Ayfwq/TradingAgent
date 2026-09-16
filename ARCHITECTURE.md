@@ -11,10 +11,6 @@ TradingAgents 把一次股票/加密资产分析拆成 **分析师 → 多空研
 
 ```
 main.py                        # 程序化入口：TradingAgentsGraph().propagate("NVDA", date)
-cli/                           # 交互式 Typer CLI（tradingagents 命令）
-  main.py                      #   选择 ticker/日期/分析师/模型 → 流式展示 → 存报告
-  utils.py                     #   provider 表格、模型选择、API key 确认、backend URL 解析
-  models.py stats_handler.py announcements.py
 tradingagents/
   default_config.py            # 中央配置 + TRADINGAGENTS_* 环境变量覆盖（单一事实源）
   reporting.py                 # 结果 markdown 报告树写出
@@ -37,7 +33,7 @@ tradingagents/
     factory.py                 #   create_llm_client(provider, model, base_url)
     base_client.py             #   抽象基类 + content 归一化
     openai_client.py           #   ★ OpenAI 兼容提供商注册表 OPENAI_COMPATIBLE_PROVIDERS + DeepSeekChatOpenAI
-    model_catalog.py           #   CLI 模型下拉目录（含 deepseek-v4-flash）
+    model_catalog.py           #   模型目录（含 deepseek-v4-flash）
     capabilities.py            #   按模型声明的 API 能力表（tool_choice/结构化方法/reasoning 回传）
     api_key_env.py             #   provider → API key 环境变量名映射
     anthropic/google/azure/bedrock_client.py
@@ -96,7 +92,7 @@ START
 - `default_config.py` 的 `DEFAULT_CONFIG` 是唯一事实源
 - `_ENV_OVERRIDES` 把 `TRADINGAGENTS_*` 环境变量映射到 config key，按默认值类型强转
 - `tradingagents/__init__.py` 在 import 时 `load_dotenv(usecwd=True)` 加载项目根 `.env`
-- CLI 交互项凡设置了对应 env var 即跳过（provider/模型/backend URL/辩论轮数/语言）
+- Web 和脚本入口都读取对应的环境变量配置（provider/模型/backend URL/辩论轮数/语言）
 
 ### 当前生效配置（.env）
 

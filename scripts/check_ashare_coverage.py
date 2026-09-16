@@ -1,14 +1,14 @@
-"""Check akshare A-share data coverage across boards/market caps.
+"""检查 akshare 在不同板块和市值范围内的 A 股数据覆盖情况。
 
-For each ticker it exercises the exact code paths the pipeline uses:
-  - load_ohlcv_akshare        (Sina daily OHLCV -> indicators/snapshot)
-  - get_stock_data_akshare    (CSV for agents)
-  - get_fundamentals_akshare  (Sina financial indicators)
-  - get_balance_sheet_akshare (Sina financial abstract)
-  - get_news_akshare          (Eastmoney per-ticker news)
-  - get_insider_transactions_akshare (Xueqiu insider trades)
+对每个代码执行流水线使用的准确数据路径：
+  - load_ohlcv_akshare       （新浪日线 OHLCV -> 指标/快照）
+  - get_stock_data_akshare   （供智能体使用的 CSV）
+  - get_fundamentals_akshare （新浪财务指标）
+  - get_balance_sheet_akshare（新浪财务摘要）
+  - get_news_akshare         （东方财富个股新闻）
+  - get_insider_transactions_akshare（雪球内部交易）
 
-Usage:  uv run --quiet python scripts/check_ashare_coverage.py [ticker ...]
+用法：uv run --quiet python scripts/check_ashare_coverage.py [ticker ...]
 """
 
 from __future__ import annotations
@@ -52,13 +52,13 @@ def check(ticker: str, curr_date: str) -> dict:
 
     try:
         s = akv.get_fundamentals_akshare(ticker, curr_date)
-        out["fundamentals"] = "ok" if "unavailable" not in s and "Error" not in s else f"degraded: {s[:80]}"
+        out["fundamentals"] = "ok" if "unavailable" not in s and "Error" not in s else f"已降级：{s[:80]}"
     except Exception as exc:  # noqa: BLE001
         out["fundamentals_error"] = f"{type(exc).__name__}: {exc}"
 
     try:
         s = akv.get_balance_sheet_akshare(ticker, "quarterly", curr_date)
-        out["balance"] = "ok" if "unavailable" not in s and "Error" not in s else f"degraded: {s[:80]}"
+        out["balance"] = "ok" if "unavailable" not in s and "Error" not in s else f"已降级：{s[:80]}"
     except Exception as exc:  # noqa: BLE001
         out["balance_error"] = f"{type(exc).__name__}: {exc}"
 
@@ -66,7 +66,7 @@ def check(ticker: str, curr_date: str) -> dict:
     try:
         s = akv.get_news_akshare(ticker, start, curr_date)
         n = s.count("\n") if s else 0
-        out["news"] = f"{n} lines" if "No" not in s[:60] else s[:60]
+        out["news"] = f"{n} 行" if "No" not in s[:60] else s[:60]
     except Exception as exc:  # noqa: BLE001
         out["news_error"] = f"{type(exc).__name__}: {exc}"
 
@@ -82,14 +82,14 @@ def check(ticker: str, curr_date: str) -> dict:
 def main() -> None:
     tickers = sys.argv[1:] or DEFAULT_TICKERS
     curr_date = datetime.now().strftime("%Y-%m-%d")
-    print(f"curr_date={curr_date}\n")
+    print(f"当前日期={curr_date}\n")
     failed = 0
     for t in tickers:
         try:
             r = check(t, curr_date)
         except Exception:  # noqa: BLE001
             failed += 1
-            print(f"== {t} ==\n  FATAL:\n{traceback.format_exc()}")
+            print(f"== {t} ==\n  致命错误：\n{traceback.format_exc()}")
             continue
         status = []
         for k in ("ohlcv_rows", "ohlcv_last", "ohlcv_close", "csv_len",
@@ -105,11 +105,11 @@ def main() -> None:
         )
         if not ok:
             failed += 1
-        print(f"== {t} == {'OK' if ok else 'ISSUES'}")
+        print(f"== {t} == {'正常' if ok else '存在问题'}")
         for s in status:
             print(f"   {s}")
         print()
-    print(f"tickers with issues: {failed}/{len(tickers)}")
+    print(f"存在问题的代码：{failed}/{len(tickers)}")
 
 
 if __name__ == "__main__":

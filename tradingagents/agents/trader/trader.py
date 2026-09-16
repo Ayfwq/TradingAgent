@@ -1,4 +1,4 @@
-"""Trader: turns the Research Manager's investment plan into a concrete transaction proposal."""
+"""交易员：将研究经理的投资计划转化为具体的交易提案。"""
 
 from __future__ import annotations
 
@@ -29,15 +29,15 @@ def create_trader(llm):
         instrument_context = get_instrument_context_from_state(state)
         investment_plan = state["investment_plan"]
 
-        logger.debug("Trader invoked: ticker=%s", state.get("company_of_interest"))
+        logger.debug("交易员调用：代码=%s", state.get("company_of_interest"))
 
         messages = [
             {
                 "role": "system",
                 "content": (
-                    "You are a trading agent analyzing market data to make investment decisions. "
-                    "Based on your analysis, provide a specific recommendation to buy, sell, or hold. "
-                    "Anchor your reasoning in the analysts' reports and the research plan. "
+                    "你是一名分析市场数据并做出投资决策的交易 Agent。"
+                    "请根据分析明确建议买入、卖出或持有。"
+                    "你的推理必须以分析师报告和研究计划为依据。"
                     + NO_EXTERNAL_TOOLS
                     + get_language_instruction()
                 ),
@@ -45,12 +45,10 @@ def create_trader(llm):
             {
                 "role": "user",
                 "content": (
-                    f"Based on a comprehensive analysis by a team of analysts, here is an investment "
-                    f"plan tailored for {company_name}. {instrument_context} This plan incorporates "
-                    f"insights from current technical market trends, macroeconomic indicators, and "
-                    f"social media sentiment. Use this plan as a foundation for evaluating your next "
-                    f"trading decision.\n\nProposed Investment Plan: {investment_plan}\n\n"
-                    f"Leverage these insights to make an informed and strategic decision."
+                    f"以下是分析师团队综合分析后为 {company_name} 制定的投资计划。{instrument_context}"
+                    f"该计划综合了当前技术面趋势、宏观经济指标和社交媒体情绪。请以此计划为基础评估下一步交易决策。"
+                    f"\n\n拟定投资计划：{investment_plan}\n\n"
+                    f"请利用这些洞察做出有依据且具有策略性的决定。"
                 ),
             },
         ]
@@ -63,12 +61,12 @@ def create_trader(llm):
                 render_trader_proposal,
                 "Trader",
             )
-            logger.debug("Trader LLM call completed: output_length=%d", len(trader_plan))
+            logger.debug("交易员 LLM 调用完成：输出长度=%d", len(trader_plan))
         except Exception as exc:
-            logger.exception("Trader LLM call failed: %s", exc)
+            logger.exception("交易员 LLM 调用失败：%s", exc)
             raise
 
-        logger.debug("Trader node return: output_length=%d", len(trader_plan))
+        logger.debug("交易员节点返回：输出长度=%d", len(trader_plan))
 
         return {
             "messages": [AIMessage(content=trader_plan)],

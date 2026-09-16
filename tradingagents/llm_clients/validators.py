@@ -1,4 +1,4 @@
-"""Model name validators for each provider."""
+"""各服务商的模型名称校验器。"""
 
 import logging
 
@@ -6,9 +6,8 @@ from .model_catalog import get_known_models
 
 logger = logging.getLogger(__name__)
 
-# Providers whose model names are user-defined (local servers, relays, hosted
-# OpenAI-compatible endpoints serving many models), so any model string is
-# accepted without warning.
+# 模型名称由用户定义的服务商（本地服务器、中继、提供大量模型的托管 OpenAI
+# 兼容端点），接受任意模型字符串且不发出警告。
 _ANY_MODEL_PROVIDERS = (
     "ollama", "openrouter", "openai_compatible",
     "mistral", "kimi", "groq", "nvidia", "bedrock",
@@ -22,21 +21,21 @@ VALID_MODELS = {
 
 
 def validate_model(provider: str, model: str) -> bool:
-    """Check if model name is valid for the given provider.
+    """检查模型名称是否对指定服务商有效。
 
-    For ollama, openrouter, and openai_compatible - any model is accepted.
+    对 ollama、openrouter 和 openai_compatible，任意模型都可接受。
     """
     provider_lower = provider.lower()
-    logger.debug("Validating model '%s' for provider '%s'", model, provider_lower)
+    logger.debug("正在校验服务商 '%s' 的模型 '%s'", provider_lower, model)
 
     if provider_lower in _ANY_MODEL_PROVIDERS:
-        logger.debug("Provider '%s' accepts any model name", provider_lower)
+        logger.debug("服务商 '%s' 接受任意模型名称", provider_lower)
         return True
 
     if provider_lower not in VALID_MODELS:
-        logger.debug("Provider '%s' has no known-model list; accepting model", provider_lower)
+        logger.debug("服务商 '%s' 没有已知模型列表，接受该模型", provider_lower)
         return True
 
     valid = model in VALID_MODELS[provider_lower]
-    logger.debug("Model '%s' valid for provider '%s': %s", model, provider_lower, valid)
+    logger.debug("模型 '%s' 对服务商 '%s' 是否有效：%s", model, provider_lower, valid)
     return valid

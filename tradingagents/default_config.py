@@ -3,11 +3,9 @@ import os
 
 _TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
 
-# Single source of truth for env-var → config-key overrides. To expose
-# a new config key for environment-based override, add a row here — no
-# entry-point script changes required. Coercion is driven by the type
-# of the existing default, so users can keep writing plain strings in
-# their .env file.
+# 环境变量 -> 配置键覆盖的唯一事实来源。要增加可通过环境变量覆盖的配置键，
+# 只需在这里添加一行，无需修改入口脚本。类型转换由现有默认值的类型驱动，
+# 因此用户可以继续在 .env 文件中写入普通字符串。
 _ENV_OVERRIDES = {
     "TRADINGAGENTS_LLM_PROVIDER":         "llm_provider",
     "TRADINGAGENTS_DEEP_THINK_LLM":       "deep_think_llm",
@@ -20,9 +18,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
-    # Provider-specific reasoning/thinking knobs (None = each provider's own
-    # default). Settable here for non-interactive runs; the CLI also offers an
-    # interactive choice, which is skipped when the matching var is set.
+    # 服务商专属的推理/思考参数（None = 使用各服务商自己的默认值）。可在此设置
+    # 以支持非交互运行；Web 和脚本入口直接读取这些配置。
     "TRADINGAGENTS_GOOGLE_THINKING_LEVEL":   "google_thinking_level",
     "TRADINGAGENTS_OPENAI_REASONING_EFFORT": "openai_reasoning_effort",
     "TRADINGAGENTS_ANTHROPIC_EFFORT":        "anthropic_effort",
@@ -34,11 +31,10 @@ _BOOL_FALSE = ("false", "0", "no", "off")
 
 
 def _coerce(value: str, reference):
-    """Coerce env-var string to the type of the existing default value.
+    """将环境变量字符串转换为现有默认值的类型。
 
-    Invalid values raise ``ValueError`` rather than silently falling back to a
-    default — a misspelled boolean (e.g. ``treu``) or non-numeric int should fail
-    loudly at startup, not quietly misconfigure an unattended run.
+    无效值会抛出 ``ValueError``，而不是静默回退到默认值；拼写错误的布尔值
+   （例如 ``treu``）或非数字整数应在启动时明确失败，而不是静默错误配置无人值守的运行。
     """
     if isinstance(reference, bool):
         normalized = value.strip().lower()
@@ -47,7 +43,7 @@ def _coerce(value: str, reference):
         if normalized in _BOOL_FALSE:
             return False
         raise ValueError(
-            f"expected a boolean ({'/'.join(_BOOL_TRUE + _BOOL_FALSE)}), got {value!r}"
+            f"应为布尔值（{'/'.join(_BOOL_TRUE + _BOOL_FALSE)}），实际为 {value!r}"
         )
     if isinstance(reference, int) and not isinstance(reference, bool):
         return int(value)
@@ -57,7 +53,7 @@ def _coerce(value: str, reference):
 
 
 def _apply_env_overrides(config: dict) -> dict:
-    """Apply TRADINGAGENTS_* env vars to the config dict in-place."""
+    """将 TRADINGAGENTS_* 环境变量原地应用到配置字典。"""
     for env_var, key in _ENV_OVERRIDES.items():
         raw = os.environ.get(env_var)
         if raw is None or raw == "":
@@ -65,20 +61,18 @@ def _apply_env_overrides(config: dict) -> dict:
         try:
             config[key] = _coerce(raw, config.get(key))
         except ValueError as exc:
-            raise ValueError(f"Invalid value for {env_var}: {exc}") from exc
+            raise ValueError(f"{env_var} 的值无效：{exc}") from exc
     return config
 
 
 def apply_data_vendors_env(config: dict) -> dict:
-    """Merge a ``TRADINGAGENTS_DATA_VENDORS`` JSON override into ``data_vendors``.
+    """将 ``TRADINGAGENTS_DATA_VENDORS`` JSON 覆盖项合并到 ``data_vendors``。
 
-    Kept out of the import-time ``_apply_env_overrides`` because ``data_vendors``
-    is a nested dict and the generic ``_coerce`` only handles scalars. Graph and
-    CLI entry points call this explicitly, so tests that reload
-    ``DEFAULT_CONFIG`` (and expect the built-in yfinance defaults) are not
-    affected by a deployment's .env.
+    它不在导入时执行的 ``_apply_env_overrides`` 中，因为 ``data_vendors`` 是嵌套字典，
+    通用 ``_coerce`` 只处理标量。图和入口会显式调用，因此重新加载
+    ``DEFAULT_CONFIG`` 且期望内置 yfinance 默认值的测试不会受部署 .env 影响。
 
-    Example value (JSON object, category -> vendor or vendor chain):
+        示例值（JSON 对象，类别 -> 供应商或供应商链）：
         {"core_stock_apis":"akshare","technical_indicators":"akshare",
          "fundamental_data":"akshare","news_data":"akshare",
          "macro_data":"akshare"}
@@ -89,9 +83,9 @@ def apply_data_vendors_env(config: dict) -> dict:
     try:
         overrides = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid value for TRADINGAGENTS_DATA_VENDORS: {exc}") from exc
+        raise ValueError(f"TRADINGAGENTS_DATA_VENDORS 的值无效：{exc}") from exc
     if not isinstance(overrides, dict):
-        raise ValueError("TRADINGAGENTS_DATA_VENDORS must be a JSON object")
+        raise ValueError("TRADINGAGENTS_DATA_VENDORS 必须是 JSON 对象")
     vendors = config.setdefault("data_vendors", {})
     vendors.update({str(k): str(v) for k, v in overrides.items()})
     return config
@@ -102,55 +96,48 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "results_dir": os.getenv("TRADINGAGENTS_RESULTS_DIR", os.path.join(_TRADINGAGENTS_HOME, "logs")),
     "data_cache_dir": os.getenv("TRADINGAGENTS_CACHE_DIR", os.path.join(_TRADINGAGENTS_HOME, "cache")),
     "memory_log_path": os.getenv("TRADINGAGENTS_MEMORY_LOG_PATH", os.path.join(_TRADINGAGENTS_HOME, "memory", "trading_memory.md")),
-    # Optional cap on the number of resolved memory log entries. When set,
-    # the oldest resolved entries are pruned once this limit is exceeded.
-    # Pending entries are never pruned. None disables rotation entirely.
+    # 已解析记忆日志条目数量的可选上限。设置后，超过上限时删除最旧的已解析条目。
+    # 待处理条目永不删除。None 表示完全禁用轮转。
     "memory_log_max_entries": None,
-    # LLM settings
+    # LLM 设置。
     "llm_provider": "openai",
     "deep_think_llm": "gpt-5.5",
     "quick_think_llm": "gpt-5.4-mini",
-    # When None, each provider's client falls back to its own default endpoint
-    # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
-    # The CLI overrides this per provider when the user picks one. Keeping a
-    # provider-specific URL here would leak (e.g. OpenAI's /v1 was previously
-    # being forwarded to Gemini, producing malformed request URLs).
+    # 为 None 时，各服务商客户端回退到自己的默认端点（OpenAI 使用 api.openai.com，
+    # Gemini 使用 generativelanguage.googleapis.com 等）。入口会按服务商覆盖。
+    # 若在此保留服务商专属 URL，可能泄漏到其他客户端（例如之前将
+    # OpenAI 的 /v1 传给 Gemini，产生格式错误的请求 URL）。
     "backend_url": None,
-    # Provider-specific thinking configuration
-    "google_thinking_level": None,      # "high", "minimal", etc.
-    "openai_reasoning_effort": None,    # "medium", "high", "low"
-    "anthropic_effort": None,           # "high", "medium", "low"
-    # Sampling temperature, forwarded to every provider when set. None leaves
-    # each provider at its own default. Lower values reduce run-to-run
-    # variation on models that honor it; reasoning models largely ignore it
-    # and no setting makes LLM output bit-identical across runs (see README).
+    # 服务商专属思考配置。
+    "google_thinking_level": None,      # 可选值："high"、"minimal" 等。
+    "openai_reasoning_effort": None,    # 可选值："medium"、"high"、"low"。
+    "anthropic_effort": None,           # 可选值："high"、"medium"、"low"。
+    # 设置后转发给所有服务商的采样温度。None 保留各服务商默认值。对支持该参数的
+    # 模型，较低值会减少运行间差异；推理模型通常会忽略它，任何设置都不能让 LLM
+    # 在不同运行间逐位输出完全相同（见 README）。
     "temperature": None,
-    # SDK retry budget forwarded to every provider chat client. None leaves each
-    # provider/SDK at its own default (usually 2). Raise it to ride out bursty
-    # 429 throttling on rate-limited deployments instead of aborting a run (#1091).
+    # 转发给所有服务商聊天客户端的 SDK 重试额度。None 保留各服务商/SDK 默认值
+    #（通常为 2）。在受限流的部署中可提高该值以应对突发 429，而不是中止运行（#1091）。
     "llm_max_retries": None,
-    # Checkpoint/resume: when True, LangGraph saves state after each node
-    # so a crashed run can resume from the last successful step.
+    # 检查点/恢复：为 True 时，LangGraph 在每个节点后保存状态，
+    # 崩溃后可从最后一个成功步骤恢复。
     "checkpoint_enabled": False,
-    # Output language for analyst reports and final decision
-    # Internal agent debate stays in English for reasoning quality
-    "output_language": "English",
-    # Debate and discussion settings
+    # 分析师报告和最终决策的输出语言。项目默认生成简体中文研报；如需其他语言，
+    # 可通过 TRADINGAGENTS_OUTPUT_LANGUAGE 覆盖。
+    "output_language": "简体中文",
+    # 辩论和讨论设置。
     "max_debate_rounds": 1,
-    # Cap on LLM->tools->LLM iterations per tool-calling analyst before it is
-    # forced to emit its report. Bounds token spend from chatty models; a
-    # higher value lets analysts fetch more data, a lower one cuts cost/latency.
+    # 每位调用工具的分析师在被强制输出报告前允许的 LLM->工具->LLM 迭代上限。
+    # 限制健谈模型的 Token 消耗；值高可获取更多数据，值低可降低成本/延迟。
     "max_tool_rounds": 3,
     "max_risk_discuss_rounds": 1,
     "max_recur_limit": 100,
-    # News / data fetching parameters
-    # Increase for longer lookback strategies or to broaden macro coverage;
-    # decrease to reduce token usage in agent prompts.
-    "news_article_limit": 20,             # max articles per ticker (ticker-news)
-    "global_news_article_limit": 10,      # max articles for global/macro news
-    "global_news_lookback_days": 7,       # macro news lookback window
-    # Search queries used by get_global_news for macro headlines. Extend or
-    # replace to broaden geographic / sector coverage.
+    # 新闻/数据获取参数。
+    # 长回溯策略或希望扩大宏观覆盖范围时提高；要减少 Agent 提示词 Token 使用量时降低。
+    "news_article_limit": 20,             # 每个代码最多获取的文章数（ticker-news）
+    "global_news_article_limit": 10,      # 全球/宏观新闻最多获取的文章数
+    "global_news_lookback_days": 7,       # 宏观新闻回溯窗口
+    # get_global_news 用于宏观标题的搜索查询。可扩展或替换以扩大地域/行业覆盖。
     "global_news_queries": [
         "Federal Reserve interest rates inflation",
         "S&P 500 earnings GDP economic outlook",
@@ -158,40 +145,37 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "ECB Bank of England BOJ central bank policy",
         "oil commodities supply chain energy",
     ],
-    # Data vendor configuration
-    # Category-level configuration (default for all tools in category).
-    # The configured value is the exact vendor chain — requests are NOT silently
-    # routed to vendors you didn't choose. For ordered fallback, list several,
-    # e.g. "yfinance,alpha_vantage". "default" uses all available vendors.
+    # 数据供应商配置。
+    # 类别级配置（该类别所有工具的默认值）。配置值就是精确的供应商链，
+    # 请求不会静默路由到未选择的供应商。要按顺序回退可列出多个，例如
+    # "yfinance,alpha_vantage"；"default" 使用所有可用供应商。
     "data_vendors": {
-        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-        "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
-        "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
-        "macro_data": "fred",                # Options: fred (needs FRED_API_KEY)
-        "prediction_markets": "polymarket",  # Options: polymarket (keyless)
+        "core_stock_apis": "yfinance",       # 可选值：alpha_vantage、yfinance
+        "technical_indicators": "yfinance",  # 可选值：alpha_vantage、yfinance
+        "fundamental_data": "yfinance",      # 可选值：alpha_vantage、yfinance
+        "news_data": "yfinance",             # 可选值：alpha_vantage、yfinance
+        "macro_data": "fred",                # 可选值：fred（需要 FRED_API_KEY）
+        "prediction_markets": "polymarket",  # 可选值：polymarket（无需密钥）
     },
-    # Tool-level configuration (takes precedence over category-level)
+    # 工具级配置（优先于类别级配置）。
     "tool_vendors": {
-        # Example: "get_stock_data": "alpha_vantage",  # Override category default
+        # 示例："get_stock_data": "alpha_vantage"，覆盖类别默认值。
     },
-    # Benchmark for alpha calculation in the reflection layer.
-    # ``benchmark_ticker`` (when set) overrides the suffix map for all
-    # tickers; leave it None to use ``benchmark_map`` for auto-detection
-    # based on the ticker's exchange suffix. SPY remains the US default
-    # so the reflection label keeps reading "Alpha vs SPY" for US tickers
-    # while non-US tickers get their regional index automatically.
+    # 反思层计算 Alpha 的基准。
+    # 设置 ``benchmark_ticker`` 时覆盖所有代码的后缀映射；保持 None 可使用
+    # ``benchmark_map``，按股票代码交易所后缀自动检测。SPY 仍是美股默认值，
+    # 因此美股代码的反思标签仍显示 "Alpha vs SPY"，非美股代码则自动使用区域指数。
     "benchmark_ticker": None,
     "benchmark_map": {
-        ".NS":  "^NSEI",       # NSE India (Nifty 50)
-        ".BO":  "^BSESN",      # BSE India (Sensex)
-        ".T":   "^N225",       # Tokyo (Nikkei 225)
-        ".HK":  "^HSI",        # Hong Kong (Hang Seng)
-        ".L":   "^FTSE",       # London (FTSE 100)
-        ".TO":  "^GSPTSE",     # Toronto (TSX Composite)
-        ".AX":  "^AXJO",       # Australia (ASX 200)
-        ".SS":  "000001.SS",   # Shanghai (SSE Composite)
-        ".SZ":  "399001.SZ",   # Shenzhen (SZSE Component)
-        "":     "SPY",         # default for US-listed tickers (no suffix)
+        ".NS":  "^NSEI",       # 印度 NSE（Nifty 50）
+        ".BO":  "^BSESN",      # 印度 BSE（Sensex）
+        ".T":   "^N225",       # 东京（Nikkei 225）
+        ".HK":  "^HSI",        # 香港（Hang Seng）
+        ".L":   "^FTSE",       # 伦敦（FTSE 100）
+        ".TO":  "^GSPTSE",     # 多伦多（TSX Composite）
+        ".AX":  "^AXJO",       # 澳大利亚（ASX 200）
+        ".SS":  "000001.SS",   # 上海（SSE Composite）
+        ".SZ":  "399001.SZ",   # 深圳（SZSE Component）
+        "":     "SPY",         # 美国上市代码的默认值（无后缀）
     },
 })

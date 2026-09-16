@@ -1,7 +1,7 @@
-"""Symbol normalization and market-data error types for vendor calls.
+"""供应商调用所需的代码规范化和市场数据错误类型。
 
-Yahoo Finance (the default vendor) uses specific ticker conventions that
-differ from the broker / TradingView / MT5 style symbols users often type:
+Yahoo Finance（默认供应商）使用特定的股票代码约定，与用户常输入的经纪商/
+TradingView/MT5 格式不同：
 
     user types        Yahoo wants       why
     ---------------   ---------------   -----------------------------------
@@ -11,11 +11,9 @@ differ from the broker / TradingView / MT5 style symbols users often type:
     BTCUSD            BTC-USD           crypto pairs use a ``-`` separator
     SPX500, US500     ^GSPC             index CFDs map to Yahoo index symbols
 
-Passing the raw broker symbol to Yahoo returns an empty result, which the
-agents previously received as free text and could hallucinate a price
-around (see issue #781). Centralizing the mapping here means every yfinance
-entry point resolves symbols the same way, and new instruments are added by
-appending a table row rather than editing call sites.
+将原始经纪商代码传给 Yahoo 会返回空结果，Agent 之前会将其当作自由文本并可能
+围绕它编造价格（见 issue #781）。将映射集中在这里，可以让所有 yfinance 入口
+以相同方式解析代码；新增标的只需增加表格行，无需修改调用点。
 """
 
 from __future__ import annotations
@@ -23,16 +21,15 @@ from __future__ import annotations
 import logging
 import re
 
-# NoMarketDataError lives in the vendor-error taxonomy (errors.py); re-exported
-# here for the many call sites that import it alongside normalize_symbol.
+# NoMarketDataError 位于供应商错误分类（errors.py）中；这里重新导出，便于许多
+# 与 normalize_symbol 一起导入它的调用点使用。
 from .errors import NoMarketDataError as NoMarketDataError
 
 logger = logging.getLogger(__name__)
 
 
-# ISO-4217 codes common enough to appear in retail forex pairs. A bare
-# six-letter symbol whose halves are BOTH in this set is treated as a spot
-# forex pair and given Yahoo's ``=X`` suffix.
+# 零售外汇交易对中常见的 ISO-4217 代码。六位且前后半段都在集合中的裸代码，
+# 视为即期外汇交易对并添加 Yahoo 的 ``=X`` 后缀。
 _FOREX_CURRENCIES = frozenset(
     {
         "USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD",
@@ -41,26 +38,24 @@ _FOREX_CURRENCIES = frozenset(
     }
 )
 
-# Crypto bases that brokers quote against USD without a separator.
+# 经纪商以无分隔符形式对美元报价的加密货币基础代码。
 _CRYPTO_BASES = frozenset(
     {"BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "LTC", "BCH", "DOT", "AVAX", "LINK"}
 )
 
-# Explicit aliases for instruments whose broker symbol does not map to a
-# Yahoo symbol by rule. Metals/energy resolve to their front-month future;
-# index CFD names resolve to the underlying Yahoo index symbol. Extend by
-# adding rows — no call site changes required.
+# 无法通过规则映射到 Yahoo 代码的标的显式别名。金属/能源映射到最近月期货，
+# 指数 CFD 名称映射到对应的 Yahoo 指数代码。新增行即可扩展，无需修改调用点。
 _ALIASES = {
-    # Precious metals (spot names -> COMEX/NYMEX futures)
+# 贵金属（现货名称 -> COMEX/NYMEX 期货）。
     "XAUUSD": "GC=F", "XAU": "GC=F", "GOLD": "GC=F",
     "XAGUSD": "SI=F", "XAG": "SI=F", "SILVER": "SI=F",
     "XPTUSD": "PL=F", "XPDUSD": "PA=F",
-    # Energy
+# 能源。
     "WTICOUSD": "CL=F", "USOIL": "CL=F", "WTI": "CL=F",
     "BCOUSD": "BZ=F", "UKOIL": "BZ=F", "BRENT": "BZ=F",
     "NATGAS": "NG=F", "XNGUSD": "NG=F",
     "COPPER": "HG=F", "XCUUSD": "HG=F",
-    # Index CFDs -> Yahoo index symbols
+# 指数 CFD -> Yahoo 指数代码。
     "SPX500": "^GSPC", "US500": "^GSPC", "SPX": "^GSPC",
     "NAS100": "^NDX", "US100": "^NDX", "USTEC": "^NDX",
     "US30": "^DJI", "DJI30": "^DJI", "WS30": "^DJI",
@@ -69,21 +64,20 @@ _ALIASES = {
     "FRA40": "^FCHI", "EU50": "^STOXX50E", "HK50": "^HSI",
 }
 
-# Yahoo symbols may contain letters, digits, and these structural characters.
+# Yahoo 代码可以包含字母、数字及这些结构字符。
 _YAHOO_SAFE = re.compile(r"^[A-Za-z0-9._\-\^=]+$")
 
 
-# Crypto quote currencies that all map to Yahoo's USD pair. Yahoo lists only
-# ``<BASE>-USD`` (not the USDT/USDC stablecoin pairs), so a broker symbol quoted
-# in any of these resolves to ``-USD`` (#982). Longest first so ``USDT``/``USDC``
-# match before the ``USD`` substring.
+# 都映射到 Yahoo 美元交易对的加密货币报价币种。Yahoo 只列出 ``<BASE>-USD``，
+# 不列出 USDT/USDC 稳定币交易对，因此使用这些报价币种的经纪商代码都解析为
+# ``-USD``（#982）。按长度降序排列，确保 ``USDT``/``USDC`` 先于 ``USD`` 匹配。
 _CRYPTO_QUOTES = ("USDT", "USDC", "USD")
 
 
 def crypto_base(raw: str) -> str | None:
-    """Return the crypto base (e.g. ``BTC``) for a known USD/USDT/USDC-quoted
-    crypto symbol in any form the pipeline may hold — ``BTC-USD``, ``BTCUSD``,
-    ``BTC-USDT`` — or None for non-crypto symbols. Purely syntactic.
+    """返回已知 USD/USDT/USDC 报价加密货币代码的基础币种（例如 ``BTC``）。
+    支持流水线可能持有的 ``BTC-USD``、``BTCUSD``、``BTC-USDT`` 等形式；
+    非加密货币代码返回 None。该函数仅执行语法判断。
     """
     if not isinstance(raw, str):
         return None
@@ -96,31 +90,29 @@ def crypto_base(raw: str) -> str | None:
 
 
 def _normalize_crypto(s: str) -> str | None:
-    """Return ``<BASE>-USD`` for a known USD/USDT/USDC-quoted crypto, else None."""
+    """已知 USD/USDT/USDC 报价加密货币返回 ``<BASE>-USD``，否则返回 None。"""
     base = crypto_base(s)
     return f"{base}-USD" if base else None
 
 
 def normalize_symbol(raw: str) -> str:
-    """Map a user/broker symbol to its canonical Yahoo Finance symbol.
+    """将用户/经纪商代码映射为规范的 Yahoo Finance 代码。
 
-    Resolution order (first match wins):
-      1. Explicit alias table (metals, energy, index CFDs).
-      2. Crypto rule: a known crypto base quoted in USD/USDT/USDC (dashed or
-         not) -> ``BASE-USD``.
-      3. Forex rule: six letters that are two ISO currency codes -> ``PAIR=X``.
-      4. Otherwise the upper-cased symbol is returned unchanged (plain
-         equities, ETFs, Yahoo-native symbols like ``GC=F`` or ``^GSPC``).
+    解析顺序（首次匹配优先）：
+      1. 显式别名表（金属、能源、指数 CFD）；
+      2. 加密货币规则：以 USD/USDT/USDC 报价的已知加密货币（带或不带短横线）
+         -> ``BASE-USD``；
+      3. 外汇规则：六个字母且由两个 ISO 货币代码组成 -> ``PAIR=X``；
+      4. 否则原样返回大写代码（普通股票、ETF、Yahoo 原生代码如 ``GC=F`` 或 ``^GSPC``）。
 
-    A trailing ``+`` (broker CFD marker, e.g. ``XAUUSD+``) is stripped before
-    matching. The function is purely syntactic — it performs no network
-    calls — so it is safe to apply on every request.
+    匹配前会删除末尾的 ``+``（经纪商 CFD 标记，例如 ``XAUUSD+``）。该函数仅执行
+    语法处理，不发起网络请求，因此可以安全地应用于每次请求。
     """
     if not isinstance(raw, str) or not raw.strip():
         return raw
 
     s = raw.strip().upper()
-    # Broker CFD/qualifier suffixes Yahoo never uses.
+    # Yahoo 永远不会使用的经纪商 CFD/限定后缀。
     s = s.rstrip("+")
 
     crypto = _normalize_crypto(s)
@@ -134,10 +126,10 @@ def normalize_symbol(raw: str) -> str:
         canonical = s
 
     if canonical != raw.strip().upper():
-        logger.info("Resolved symbol %r to Yahoo symbol %r", raw, canonical)
+        logger.info("已将代码 %r 解析为 Yahoo 代码 %r", raw, canonical)
     return canonical
 
 
 def is_yahoo_safe(symbol: str) -> bool:
-    """True when ``symbol`` only contains characters Yahoo symbols use."""
+    """当 ``symbol`` 只包含 Yahoo 代码使用的字符时返回 True。"""
     return bool(symbol) and _YAHOO_SAFE.fullmatch(symbol) is not None

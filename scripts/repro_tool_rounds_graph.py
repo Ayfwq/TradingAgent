@@ -1,24 +1,19 @@
-"""Regression test: parallel analysts WITH tool rounds must reach END.
+"""回归测试：带工具轮次的并行分析师必须到达 END。
 
-The passing smoke test (verify_parallel_graph.py) uses a fake LLM that never
-calls tools, so analysts never enter the tools loop and the fan-in join stays
-in one depth layer. With real LLMs analysts call tools for a variable number
-of rounds, so their clear nodes land in different layers — which used to
-crash the graph:
+通过的冒烟测试（verify_parallel_graph.py）使用从不调用工具的伪 LLM，
+因此分析师不会进入工具循环，扇入连接节点始终位于同一深度层。真实 LLM
+会执行可变轮数的工具调用，因此其清理节点会落在不同深度层；这曾导致图崩溃：
 
-  InvalidUpdateError: At key 'investment_debate_state': Can receive only one
-  value per step.
+  InvalidUpdateError：键 'investment_debate_state' 每步只能接收一个值。
 
-Fixed by the Analyst Barrier: a fan-in node that absorbs cross-layer clear
-signals and only routes into the debate once every analyst has finished
-(report present, or its clear node marked it done).
+该问题由分析师屏障修复：扇入节点吸收跨层清理信号，只有在每个分析师都完成
+（报告存在，或其清理节点已标记完成）后才路由到辩论阶段。
 
-This script makes each analyst call one real tool (get_stock_data via
-akshare — thread-locked and fast) before reporting, reproducing the
-multi-layer fan-in, and asserts the full pipeline reaches the Portfolio
-Manager.
+本脚本让每个分析师在报告前调用一次真实工具（通过 akshare 获取
+get_stock_data——线程锁定且速度快），复现多层扇入，并断言完整流水线能够
+到达投资组合经理。
 
-Usage:  uv run --quiet python scripts/repro_tool_rounds_graph.py
+用法：uv run --quiet python scripts/repro_tool_rounds_graph.py
 """
 
 from __future__ import annotations
@@ -41,23 +36,20 @@ TOOL_CALL_ID = "call_fake_1"
 
 
 class FakeToolLLM(BaseChatModel):
-    """Fake LLM: on the FIRST call of an analyst turn (messages is just the
-    single startup Human message) it calls get_stock_data, forcing the
-    analyst through one tool round; on every later call it reports.
-    Sentiment's prompt carries a system message (2+ messages from the start),
-    so it reports immediately — reproducing the real-world mix where some
-    analysts tool-loop and others do not (clear nodes land in different
-    depth layers)."""
+    """伪 LLM：在分析师轮次的第一次调用中（messages 只有一条启动 Human 消息）
+    调用 get_stock_data，迫使分析师经历一轮工具调用；之后的每次调用都直接报告。
+    情绪分析师的提示词从一开始就带有系统消息（至少 2 条消息），因此会立即报告，
+    复现真实场景中部分分析师进入工具循环、部分不进入的混合情况（清理节点位于
+    不同深度层）。"""
 
     @property
     def _llm_type(self) -> str:
         return "fake-tool"
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        # Tool-call only for the lone HumanMessage analyst-channel seed
-        # (content == the ticker). Prompt-string stages (Trader/RM/PM) arrive
-        # as a single long HumanMessage and must report directly — otherwise
-        # they'd emit a get_stock_data call against tools they don't have.
+        # 只有分析师通道中唯一的 HumanMessage 种子（content == ticker）才调用工具。
+        # 提示词字符串阶段（交易员/风险管理/投资组合经理）以一条很长的
+        # HumanMessage 到达，必须直接报告，否则会对未绑定的工具发出 get_stock_data 调用。
         from langchain_core.messages import HumanMessage
         if (
             len(messages) == 1
@@ -119,8 +111,7 @@ def main() -> int:
             },
             debug=False,
         )
-        # values mode: every chunk carries the FULL state, so the final chunk
-        # has everything the pipeline produced.
+        # values 模式：每个块都携带完整状态，因此最后一个块包含流水线生成的全部内容。
         final_state = graph.graph.invoke(
             graph.propagator.create_initial_state("600519.SS", "2026-08-17"),
             **graph.propagator.get_graph_args(),
@@ -137,11 +128,11 @@ def main() -> int:
 
         ok = all(reports) and debate.get("count", 0) >= 2 \
             and risk.get("count", 0) >= 3 and bool(decision.strip())
-        print(f"reports filled: {reports}")
-        print(f"debate count: {debate.get('count', 0)} | "
-              f"risk count: {risk.get('count', 0)}")
-        print(f"final_trade_decision: {bool(decision.strip())}")
-        print("TOOL-ROUNDS PARALLEL GRAPH:", "PASSED" if ok else "FAILED")
+        print(f"报告是否完整：{reports}")
+        print(f"辩论轮数：{debate.get('count', 0)} | "
+              f"风险辩论轮数：{risk.get('count', 0)}")
+        print(f"最终交易决策是否存在：{bool(decision.strip())}")
+        print("带工具轮次的并行图：", "通过" if ok else "失败")
         return 0 if ok else 1
     finally:
         tg.create_llm_client = orig_create

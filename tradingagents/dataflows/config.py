@@ -5,29 +5,29 @@ import tradingagents.default_config as default_config
 
 logger = logging.getLogger(__name__)
 
-# Use default config but allow it to be overridden
+# 使用默认配置，同时允许覆盖。
 _config: dict | None = None
 
 
 def initialize_config():
-    """Initialize the configuration with default values."""
+    """使用默认值初始化配置。"""
     global _config
     if _config is None:
         _config = deepcopy(default_config.DEFAULT_CONFIG)
-        logger.debug("config initialized from default_config (%d keys)", len(_config))
+        logger.debug("已从 default_config 初始化配置（%d 个键）", len(_config))
 
 
 def set_config(config: dict):
-    """Update the configuration with custom values.
+    """使用自定义值更新配置。
 
-    Dict-valued keys (e.g. ``data_vendors``) are merged one level deep so a
-    partial update like ``{"data_vendors": {"core_stock_apis": "alpha_vantage"}}``
-    keeps the other nested keys from the default; scalar keys are replaced.
+    字典类型的键（例如 ``data_vendors``）会合并一层，因此类似
+    ``{"data_vendors": {"core_stock_apis": "alpha_vantage"}}`` 的部分更新
+    会保留默认的其他嵌套键；标量键则直接替换。
     """
     global _config
     initialize_config()
     incoming = deepcopy(config)
-    logger.debug("set_config called with %d top-level keys", len(incoming))
+    logger.debug("调用 set_config，包含 %d 个顶层键", len(incoming))
     for key, value in incoming.items():
         if isinstance(value, dict) and isinstance(_config.get(key), dict):
             _config[key].update(value)
@@ -36,12 +36,12 @@ def set_config(config: dict):
 
 
 def get_config() -> dict:
-    """Get the current configuration."""
+    """获取当前配置。"""
     if _config is None:
-        logger.debug("config cache miss; re-initializing from defaults")
+        logger.debug("配置缓存未命中，正在从默认值重新初始化")
         initialize_config()
     return deepcopy(_config)
 
 
-# Initialize with default config
+# 使用默认配置初始化。
 initialize_config()

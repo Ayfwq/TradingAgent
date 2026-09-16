@@ -1,11 +1,9 @@
-"""Portfolio Manager: synthesises the risk-analyst debate into the final decision.
+"""投资组合经理：将风险分析师辩论综合为最终决策。
 
-Uses LangChain's ``with_structured_output`` so the LLM produces a typed
-``PortfolioDecision`` directly, in a single call.  The result is rendered
-back to markdown for storage in ``final_trade_decision`` so memory log,
-CLI display, and saved reports continue to consume the same shape they do
-today.  When a provider does not expose structured output, the agent falls
-back gracefully to free-text generation.
+使用 LangChain 的 ``with_structured_output``，让 LLM 在单次调用中直接生成类型化的
+``PortfolioDecision``。结果会重新渲染为 Markdown 并写入 ``final_trade_decision``，
+因此记忆日志、Web 展示和已保存报告仍保持相同结构。如果服务商不提供结构化输出，
+则优雅回退到自由文本生成。
 """
 
 from __future__ import annotations
@@ -37,38 +35,38 @@ def create_portfolio_manager(llm):
         research_plan = state["investment_plan"]
         trader_plan = state["trader_investment_plan"]
 
-        logger.debug("Portfolio Manager invoked: ticker=%s", state.get("company_of_interest"))
+        logger.debug("投资组合经理调用：代码=%s", state.get("company_of_interest"))
 
         past_context = state.get("past_context", "")
         lessons_line = (
-            f"- Lessons from prior decisions and outcomes:\n{past_context}\n"
+            f"- 过往决策与结果中的经验：\n{past_context}\n"
             if past_context
             else ""
         )
 
-        prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
+        prompt = f"""作为投资组合经理，请综合风险分析师的辩论并给出最终交易决策。
 
 {instrument_context}
 
 ---
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction to enter or add to position
-- **Overweight**: Favorable outlook, gradually increase exposure
-- **Hold**: Maintain current position, no action needed
-- **Underweight**: Reduce exposure, take partial profits
-- **Sell**: Exit position or avoid entry
+**评级尺度**（必须且只能选择一个）：
+- **Buy**：强烈认同，应建仓或加仓
+- **Overweight**：前景有利，逐步增加敞口
+- **Hold**：维持当前仓位，无需操作
+- **Underweight**：减少敞口，部分止盈
+- **Sell**：退出持仓或避免入场
 
-**Context:**
-- Research Manager's investment plan: **{research_plan}**
-- Trader's transaction proposal: **{trader_plan}**
+**上下文：**
+- 研究经理的投资计划：**{research_plan}**
+- 交易员的交易提案：**{trader_plan}**
 {lessons_line}
-**Risk Analysts Debate History:**
+**风险分析师辩论历史：**
 {history}
 
 ---
 
-Be decisive and ground every conclusion in specific evidence from the analysts.
+请明确决策，并让每个结论都有分析师提供的具体证据支撑。
 
 {NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
 
@@ -80,9 +78,9 @@ Be decisive and ground every conclusion in specific evidence from the analysts.
                 render_pm_decision,
                 "Portfolio Manager",
             )
-            logger.debug("Portfolio Manager LLM call completed: output_length=%d", len(final_trade_decision))
+            logger.debug("投资组合经理 LLM 调用完成：输出长度=%d", len(final_trade_decision))
         except Exception as exc:
-            logger.exception("Portfolio Manager LLM call failed: %s", exc)
+            logger.exception("投资组合经理 LLM 调用失败：%s", exc)
             raise
 
         new_risk_debate_state = {
@@ -98,7 +96,7 @@ Be decisive and ground every conclusion in specific evidence from the analysts.
             "count": risk_debate_state["count"],
         }
 
-        logger.debug("Portfolio Manager node return: output_length=%d", len(final_trade_decision))
+        logger.debug("投资组合经理节点返回：输出长度=%d", len(final_trade_decision))
 
         return {
             "risk_debate_state": new_risk_debate_state,

@@ -5,10 +5,12 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import (
     get_balance_sheet,
     get_cashflow,
+    get_earnings_forecast,
     get_fundamentals,
     get_income_statement,
     get_instrument_context_from_state,
     get_language_instruction,
+    is_ashare_ticker,
 )
 
 logger = logging.getLogger(__name__)
@@ -17,8 +19,10 @@ logger = logging.getLogger(__name__)
 def create_fundamentals_analyst(llm):
     def fundamentals_analyst_node(state):
         current_date = state["trade_date"]
+        ticker = state["company_of_interest"]
+        is_ashare = is_ashare_ticker(ticker)
         instrument_context = get_instrument_context_from_state(state)
-        logger.debug("Fundamentals Analyst node invoked: ticker=%s date=%s", state.get("company_of_interest"), state.get("trade_date"))
+        logger.debug("基本面分析师节点调用：代码=%s 日期=%s", state.get("company_of_interest"), state.get("trade_date"))
 
         tools = [
             get_fundamentals,
@@ -26,11 +30,24 @@ def create_fundamentals_analyst(llm):
             get_cashflow,
             get_income_statement,
         ]
+        if is_ashare:
+            tools.append(get_earnings_forecast)
+
+        ashare_instruction = ""
+        if is_ashare:
+            ashare_instruction = (
+                "这是 A 股：调用 `get_earnings_forecast(ticker, curr_date)`，"
+                "并将业绩预告作为重要领先信号。没有业绩预告是正常结果，严禁虚构。"
+            )
 
         system_message = (
-            "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
-            + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
+            "你是一名研究员，负责分析公司过去一周的基本面信息。请撰写全面的基本面报告，"
+            "涵盖财务文件、公司概况、核心财务数据和历史财务表现，以完整了解公司并为交易员提供依据。"
+            "尽可能提供详细内容，并用有证据支持的具体、可执行洞察帮助交易员做出决策。"
+            + "请在报告末尾附上一张 Markdown 表格，整理报告要点，确保结构清晰、易读。"
+            + "可用工具包括：`get_fundamentals` 用于综合公司分析；`get_balance_sheet`、"
+            "`get_cashflow` 和 `get_income_statement` 用于查询具体财务报表。"
+            + ashare_instruction
             + get_language_instruction(),
         )
 
@@ -38,14 +55,14 @@ def create_fundamentals_analyst(llm):
             [
                 (
                     "system",
-                    "You are a helpful AI assistant, collaborating with other assistants."
-                    " Use the provided tools to progress towards answering the question."
-                    " If you are unable to fully answer, that's OK; another assistant with different tools"
-                    " will help where you left off. Execute what you can to make progress."
-                    " If you or any other assistant has the FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** or deliverable,"
-                    " prefix your response with FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** so the team knows to stop."
-                    " You have access to the following tools: {tool_names}."
-                    " Today's date is {current_date}; treat it as 'now' for all analysis and tool-call date ranges. {instrument_context}\n"
+                    "你是一名乐于协作的 AI 助手，正在与其他助手共同工作。"
+                    "请使用提供的工具推进问题的解答。"
+                    "如果无法完全回答也没关系，其他拥有不同工具的助手会从你停下的地方继续。"
+                    "请尽可能推进任务。"
+                    "如果你或其他助手已经给出 FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL** 或完成交付，"
+                    "请在回复前加上 FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**，以便团队停止继续调用。"
+                    "你可以使用以下工具：{tool_names}。"
+                    "今天是 {current_date}；所有分析和工具调用日期范围都以它作为当前日期。{instrument_context}\n"
                     "{system_message}",
                 ),
                 MessagesPlaceholder(variable_name="messages"),
@@ -59,14 +76,14 @@ def create_fundamentals_analyst(llm):
 
         chain = prompt | llm.bind_tools(tools)
 
-        # Private channel when the analysts run concurrently; legacy fallback
-        # to the shared "messages" for direct calls / old checkpoints.
+        # 分析师并行运行时使用独立通道；直接调用或旧 checkpoint 使用共享
+        # ``messages`` 作为兼容回退。
         channel = state.get("fundamentals_messages", state.get("messages", []))
         try:
             result = chain.invoke(channel)
-            logger.debug("Fundamentals Analyst LLM call completed (%d tool_calls)", len(getattr(result, "tool_calls", []) or []))
+            logger.debug("基本面分析师 LLM 调用完成（%d 个工具调用）", len(getattr(result, "tool_calls", []) or []))
         except Exception as exc:
-            logger.exception("Fundamentals Analyst LLM call failed: %s", exc)
+            logger.exception("基本面分析师 LLM 调用失败：%s", exc)
             raise
 
         report = ""
@@ -74,7 +91,7 @@ def create_fundamentals_analyst(llm):
         if len(result.tool_calls) == 0:
             report = result.content
 
-        logger.debug("Fundamentals Analyst finished: report=%d chars", len(report or ""))
+        logger.debug("基本面分析师完成：报告长度=%d 字符", len(report or ""))
 
         return {
             "fundamentals_messages": [result],

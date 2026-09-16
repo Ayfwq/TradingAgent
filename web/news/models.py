@@ -57,7 +57,7 @@ class NewsItem:
     title_hash: str = ""
     content_hash: str = ""
     importance_score: int = 0
-    summary_status: str = "rss"          # ai / rss / title
+    summary_status: str = "rss"          # ai / rss / title：摘要来源
     source_count: int = 1
     duplicate_of_id: int | None = None
 
@@ -81,7 +81,7 @@ class FetchRunStats:
     source_id: str
     started_at: datetime
     finished_at: datetime | None = None
-    status: str = "running"              # ok / error
+    status: str = "running"              # ok / error：处理状态
     new_count: int = 0
     duplicate_count: int = 0
     filtered_count: int = 0

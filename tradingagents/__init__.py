@@ -1,13 +1,11 @@
 import contextlib
 import warnings
 
-# Load .env files at package import so DEFAULT_CONFIG's env-var overlay
-# (and every llm_clients consumer) sees the user's keys regardless of
-# which entry point started the process. find_dotenv(usecwd=True) walks
-# from the CWD, so the installed `tradingagents` console script picks up
-# the project's .env instead of stepping up from site-packages.
-# load_dotenv defaults to override=False, so it never clobbers values
-# the caller has already exported.
+# 在包导入时加载 .env 文件，使 DEFAULT_CONFIG 的环境变量覆盖（以及所有 llm_clients
+# 调用方）无论由哪个入口启动进程都能看到用户密钥。find_dotenv(usecwd=True) 从当前
+# 工作目录开始查找，因此已安装的 `tradingagents` 控制台脚本会读取项目 .env，
+# 不会从 site-packages 向上查找。load_dotenv 默认 override=False，因此不会覆盖调用方
+# 已导出的值。
 try:
     from dotenv import find_dotenv, load_dotenv
 
@@ -16,29 +14,27 @@ try:
 except ImportError:
     pass
 
-# langchain-core 1.3.3 calls surface_langchain_deprecation_warnings() in
-# its own __init__, which prepends default-action filters for its
-# subclassed warning categories. To suppress a specific warning we must
-# install our filter AFTER langchain-core has installed its own, so import
-# it first. The package is a guaranteed transitive dep via langgraph.
+# langchain-core 1.3.3 会在自己的 __init__ 中调用
+# surface_langchain_deprecation_warnings()，为子类警告类别预置 default-action 过滤器。
+# 要抑制特定警告，必须在 langchain-core 安装自身过滤器后再安装我们的过滤器，
+# 因此先导入它。langgraph 会传递依赖该包。
 with contextlib.suppress(ImportError):
     import langchain_core  # noqa: F401
 
-# langgraph-checkpoint 4.0.3 calls Reviver() at module load without an
-# explicit allowed_objects, which triggers a noisy pending-deprecation
-# warning from langchain-core 1.3.3 on every interpreter start. The fix
-# is already merged upstream (langchain-ai/langgraph#7743, 2026-05-08)
-# and will arrive in the next langgraph-checkpoint release. Remove this
-# block (and the langchain_core preload above) when we bump past it.
+# langgraph-checkpoint 4.0.3 在加载模块时调用 Reviver()，但没有显式传入
+# allowed_objects，导致解释器每次启动都收到 langchain-core 1.3.3 的嘈杂待弃用警告。
+# 修复已在上游合并（langchain-ai/langgraph#7743，2026-05-08），会随下一版
+# langgraph-checkpoint 发布。升级超过该版本后删除此代码块（及上面的 langchain_core 预加载）。
 warnings.filterwarnings(
     "ignore",
+    # 上游警告文本为协议匹配内容，保持英文正则以便准确过滤。
     message=r"The default value of `allowed_objects`.*",
     category=PendingDeprecationWarning,
 )
 
-# Wire up the unified console + rotating-file logging once per process.
-# Every entry point (CLI, main.py, web server, scripts) imports this
-# package, so operations always gets a consistent, queryable log stream.
+# 每个进程配置一次统一的控制台 + 按天轮转文件日志。
+# 所有入口（main.py、Web 服务器、脚本）都会导入此包，因此运维始终能得到
+# 一致且可查询的日志流。
 with contextlib.suppress(Exception):
     from .logging_utils import setup_logging as _setup_logging
 

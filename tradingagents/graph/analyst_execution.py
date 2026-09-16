@@ -33,10 +33,9 @@ ANALYST_NODE_SPECS: dict[str, AnalystNodeSpec] = {
         done_key="market_done",
     ),
     "social": AnalystNodeSpec(
-        # Wire key stays "social" for saved-config back-compat; the
-        # user-facing label is "Sentiment Analyst" to match the rename
-        # that landed in v0.2.5 (sentiment_analyst now ingests news +
-        # StockTwits + Reddit, not just social media).
+        # 为兼容已保存配置，线路键仍为 "social"；用户可见标签使用
+        # "Sentiment Analyst"，与 v0.2.5 的重命名保持一致（sentiment_analyst
+        # 现在接收新闻、StockTwits 和 Reddit，不再只处理社交媒体）。
         key="social",
         agent_node="Sentiment Analyst",
         clear_node="Msg Clear Sentiment",
@@ -73,13 +72,13 @@ def build_analyst_execution_plan(
     for analyst_key in selected_analysts:
         spec = ANALYST_NODE_SPECS.get(analyst_key)
         if spec is None:
-            logger.error("Unknown analyst key requested: %s", analyst_key)
-            raise ValueError(f"unknown analyst key: {analyst_key}")
+            logger.error("请求了未知的分析师键：%s", analyst_key)
+            raise ValueError(f"未知的分析师键：{analyst_key}")
         specs.append(spec)
 
     if not specs:
-        logger.error("Analyst execution plan requires at least one analyst")
-        raise ValueError("at least one analyst must be selected")
+        logger.error("分析师执行计划至少需要一位分析师")
+        raise ValueError("至少必须选择一位分析师")
 
     logger.debug(
         "Analyst execution plan built: %s",
@@ -129,8 +128,8 @@ class AnalystWallTimeTracker:
                 label = spec.agent_node.removesuffix(" Analyst")
                 parts.append(f"{label} {duration:.2f}s")
         if not parts:
-            return "Analyst wall time: pending"
-        return "Analyst wall time: " + " | ".join(parts)
+            return "分析师耗时：等待中"
+        return "分析师耗时：" + " | ".join(parts)
 
 
 def sync_analyst_tracker_from_chunk(

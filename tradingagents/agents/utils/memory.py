@@ -1,4 +1,4 @@
-"""Append-only markdown decision log for TradingAgents."""
+"""TradingAgents 的只追加 Markdown 决策日志。"""
 
 import logging
 import re
@@ -10,11 +10,11 @@ logger = logging.getLogger(__name__)
 
 
 class TradingMemoryLog:
-    """Append-only markdown log of trading decisions and reflections."""
+    """只追加保存交易决策和反思内容的 Markdown 日志。"""
 
-    # HTML comment: cannot appear in LLM prose output, safe as a hard delimiter
+    # HTML 注释不会出现在 LLM 的自然语言输出中，可安全用作硬分隔符。
     _SEPARATOR = "\n\n<!-- ENTRY_END -->\n\n"
-    # Precompiled patterns — avoids re-compilation on every load_entries() call
+    # 预编译正则，避免每次调用 load_entries() 时重复编译。
     _DECISION_RE = re.compile(r"DECISION:\n(.*?)(?=\nREFLECTION:|\Z)", re.DOTALL)
     _REFLECTION_RE = re.compile(r"REFLECTION:\n(.*?)$", re.DOTALL)
 
@@ -25,14 +25,14 @@ class TradingMemoryLog:
         if path:
             self._log_path = Path(path).expanduser()
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
-        # Optional cap on resolved entries. None disables rotation.
+        # 可选的已完成条目数量上限；None 表示不轮换。
         self._max_entries = cfg.get("memory_log_max_entries")
         logger.debug(
-            "TradingMemoryLog initialized: log_path=%s, max_entries=%s",
+            "TradingMemoryLog 已初始化：日志路径=%s，最大条目数=%s",
             self._log_path, self._max_entries,
         )
 
-    # --- Write path (Phase A) ---
+    # --- 写入路径（阶段 A）---
 
     def store_decision(
         self,
@@ -40,20 +40,20 @@ class TradingMemoryLog:
         trade_date: str,
         final_trade_decision: str,
     ) -> None:
-        """Append pending entry at end of propagate(). No LLM call."""
+        """在 propagate() 末尾追加待处理条目，不调用 LLM。"""
         logger.debug(
-            "store_decision called: ticker=%s, trade_date=%s",
+            "已调用 store_decision：ticker=%s，trade_date=%s",
             ticker, trade_date,
         )
         if not self._log_path:
             return
-        # Idempotency guard: fast raw-text scan instead of full parse
+        # 幂等保护：扫描原始文本，避免完整解析。
         if self._log_path.exists():
             raw = self._log_path.read_text(encoding="utf-8")
             for line in raw.splitlines():
                 if line.startswith(f"[{trade_date} | {ticker} |") and line.endswith("| pending]"):
                     logger.debug(
-                        "store_decision skipped duplicate pending entry for %s / %s",
+                        "store_decision 跳过重复的待处理条目：%s / %s",
                         ticker, trade_date,
                     )
                     return
@@ -63,17 +63,17 @@ class TradingMemoryLog:
         with open(self._log_path, "a", encoding="utf-8") as f:
             f.write(entry)
         logger.info(
-            "store_decision wrote pending entry: ticker=%s, trade_date=%s, rating=%s",
+            "store_decision 已写入待处理条目：ticker=%s，trade_date=%s，rating=%s",
             ticker, trade_date, rating,
         )
 
-    # --- Read path (Phase A) ---
+    # --- 读取路径（阶段 A）---
 
     def load_entries(self) -> list[dict]:
-        """Parse all entries from log. Returns list of dicts."""
-        logger.debug("load_entries called: log_path=%s", self._log_path)
+        """解析日志中的所有条目，返回字典列表。"""
+        logger.debug("正在加载记忆条目：log_path=%s", self._log_path)
         if not self._log_path or not self._log_path.exists():
-            logger.debug("load_entries: no log file present, returning empty list")
+            logger.debug("load_entries：日志文件不存在，返回空列表")
             return []
         text = self._log_path.read_text(encoding="utf-8")
         raw_entries = [e.strip() for e in text.split(self._SEPARATOR) if e.strip()]
@@ -82,24 +82,24 @@ class TradingMemoryLog:
             parsed = self._parse_entry(raw)
             if parsed:
                 entries.append(parsed)
-        logger.debug("load_entries parsed %d entries", len(entries))
+        logger.debug("load_entries 已解析 %d 个条目", len(entries))
         return entries
 
     def get_pending_entries(self) -> list[dict]:
-        """Return entries with outcome:pending (for Phase B)."""
+        """返回 outcome:pending 的条目（供阶段 B 使用）。"""
         pending = [e for e in self.load_entries() if e.get("pending")]
-        logger.debug("get_pending_entries found %d pending entries", len(pending))
+        logger.debug("get_pending_entries 找到 %d 个待处理条目", len(pending))
         return pending
 
     def get_past_context(self, ticker: str, n_same: int = 5, n_cross: int = 3) -> str:
-        """Return formatted past context string for agent prompt injection."""
+        """返回格式化的历史上下文字符串，供注入 Agent 提示词。"""
         logger.debug(
-            "get_past_context called: ticker=%s, n_same=%d, n_cross=%d",
+            "正在获取历史上下文：ticker=%s，n_same=%d，n_cross=%d",
             ticker, n_same, n_cross,
         )
         entries = [e for e in self.load_entries() if not e.get("pending")]
         if not entries:
-            logger.debug("get_past_context: no resolved entries for %s", ticker)
+            logger.debug("get_past_context：未找到 %s 的已完成条目", ticker)
             return ""
 
         same, cross = [], []
@@ -112,24 +112,24 @@ class TradingMemoryLog:
                 cross.append(e)
 
         if not same and not cross:
-            logger.debug("get_past_context: no matching entries for %s", ticker)
+            logger.debug("get_past_context：未找到 %s 的匹配条目", ticker)
             return ""
 
         parts = []
         if same:
-            parts.append(f"Past analyses of {ticker} (most recent first):")
+            parts.append(f"{ticker} 的历史分析（最新在前）：")
             parts.extend(self._format_full(e) for e in same)
         if cross:
-            parts.append("Recent cross-ticker lessons:")
+            parts.append("近期其他股票的经验：")
             parts.extend(self._format_reflection_only(e) for e in cross)
         result = "\n\n".join(parts)
         logger.debug(
-            "get_past_context built %d chars for %s (%d same, %d cross)",
+            "get_past_context 为 %s 构建了 %d 个字符（%d 个同股票条目，%d 个其他股票条目）",
             len(result), ticker, len(same), len(cross),
         )
         return result
 
-    # --- Update path (Phase B) ---
+    # --- 更新路径（阶段 B）---
 
     def update_with_outcome(
         self,
@@ -140,18 +140,18 @@ class TradingMemoryLog:
         holding_days: int,
         reflection: str,
     ) -> None:
-        """Replace pending tag and append REFLECTION section using atomic write.
+        """通过原子写入替换待处理标签，并追加 REFLECTION 部分。
 
-        Finds the first pending entry matching (trade_date, ticker), updates
-        its tag with return figures, and appends a REFLECTION section.  Uses
-        a temp-file + os.replace() so a crash mid-write never corrupts the log.
+        查找第一个匹配（trade_date、ticker）的待处理条目，在标签中写入收益率，
+        并追加 REFLECTION 部分。使用临时文件和 os.replace()，即使写入中途崩溃
+        也不会损坏日志。
         """
         logger.debug(
-            "update_with_outcome called: ticker=%s, trade_date=%s, raw_return=%s, alpha_return=%s, holding_days=%d",
+            "已调用 update_with_outcome：ticker=%s，trade_date=%s，raw_return=%s，alpha_return=%s，holding_days=%d",
             ticker, trade_date, raw_return, alpha_return, holding_days,
         )
         if not self._log_path or not self._log_path.exists():
-            logger.debug("update_with_outcome: no log file present, skipping")
+            logger.debug("update_with_outcome：日志文件不存在，跳过")
             return
 
         text = self._log_path.read_text(encoding="utf-8")
@@ -177,7 +177,7 @@ class TradingMemoryLog:
                 and tag_line.startswith(pending_prefix)
                 and tag_line.endswith("| pending]")
             ):
-                # Parse rating from the existing pending tag
+                # 从现有的待处理标签中解析评级。
                 fields = [f.strip() for f in tag_line[1:-1].split("|")]
                 rating = fields[2]
                 new_tag = (
@@ -194,7 +194,7 @@ class TradingMemoryLog:
 
         if not updated:
             logger.debug(
-                "update_with_outcome: no pending entry matched for %s / %s",
+                "update_with_outcome：未找到匹配的待处理条目：%s / %s",
                 trade_date, ticker,
             )
             return
@@ -205,27 +205,27 @@ class TradingMemoryLog:
         tmp_path.write_text(new_text, encoding="utf-8")
         tmp_path.replace(self._log_path)
         logger.info(
-            "update_with_outcome resolved entry: ticker=%s, trade_date=%s, raw=%s, alpha=%s",
+            "update_with_outcome 已完成条目：ticker=%s，trade_date=%s，raw=%s，alpha=%s",
             ticker, trade_date, raw_pct, alpha_pct,
         )
 
     def batch_update_with_outcomes(self, updates: list[dict]) -> None:
-        """Apply multiple outcome updates in a single read + atomic write.
+        """通过一次读取和原子写入应用多个结果更新。
 
-        Each element of updates must have keys: ticker, trade_date,
-        raw_return, alpha_return, holding_days, reflection.
+        updates 中的每个元素都必须包含 ticker、trade_date、raw_return、
+        alpha_return、holding_days、reflection 键。
         """
         logger.debug(
-            "batch_update_with_outcomes called with %d updates", len(updates)
+            "已调用 batch_update_with_outcomes，包含 %d 个更新", len(updates)
         )
         if not self._log_path or not self._log_path.exists() or not updates:
-            logger.debug("batch_update_with_outcomes: no log file or updates, skipping")
+            logger.debug("batch_update_with_outcomes：没有日志文件或更新内容，跳过")
             return
 
         text = self._log_path.read_text(encoding="utf-8")
         blocks = text.split(self._SEPARATOR)
 
-        # Build lookup keyed by (trade_date, ticker) for O(1) dispatch
+        # 构建以（trade_date、ticker）为键的查找表，实现 O(1) 分发。
         update_map = {(u["trade_date"], u["ticker"]): u for u in updates}
 
         new_blocks = []
@@ -267,22 +267,22 @@ class TradingMemoryLog:
         tmp_path.write_text(new_text, encoding="utf-8")
         tmp_path.replace(self._log_path)
         logger.info(
-            "batch_update_with_outcomes applied %d updates",
+            "batch_update_with_outcomes 已应用 %d 个更新",
             len(updates) - len(update_map),
         )
 
-    # --- Helpers ---
+    # --- 辅助方法 ---
 
     def _apply_rotation(self, blocks: list[str]) -> list[str]:
-        """Drop oldest resolved blocks when their count exceeds max_entries.
+        """当已完成块数量超过 max_entries 时删除最早的块。
 
-        Pending blocks are always kept (they represent unprocessed work).
-        Returns ``blocks`` unchanged when rotation is disabled or under cap.
+        待处理块始终保留（它们代表尚未处理的工作）。禁用轮换或未超过上限时，
+        原样返回 ``blocks``。
         """
         if not self._max_entries or self._max_entries <= 0:
             return blocks
 
-        # Tag each block with (kept, is_resolved) by parsing tag-line markers.
+        # 解析标签行标记，为每个块标注是否已完成。
         decisions = []
         for block in blocks:
             stripped = block.strip()
@@ -303,7 +303,7 @@ class TradingMemoryLog:
 
         to_drop = resolved_count - self._max_entries
         logger.debug(
-            "_apply_rotation dropping %d resolved blocks (max_entries=%s)",
+            "_apply_rotation 正在删除 %d 个已完成块（max_entries=%s）",
             to_drop, self._max_entries,
         )
         kept: list[str] = []
@@ -320,11 +320,11 @@ class TradingMemoryLog:
             return None
         tag_line = lines[0].strip()
         if not (tag_line.startswith("[") and tag_line.endswith("]")):
-            logger.debug("_parse_entry skipped block without tag brackets")
+            logger.debug("_parse_entry 跳过了不含标签括号的区块")
             return None
         fields = [f.strip() for f in tag_line[1:-1].split("|")]
         if len(fields) < 4:
-            logger.debug("_parse_entry skipped block with %d fields", len(fields))
+            logger.debug("_parse_entry 跳过了字段数为 %d 的区块", len(fields))
             return None
         entry = {
             "date": fields[0],

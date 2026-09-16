@@ -1,19 +1,15 @@
-"""Pydantic schemas used by agents that produce structured output.
+"""生成结构化输出的 Agent 所使用的 Pydantic schema。
 
-The framework's primary artifact is still prose: each agent's natural-language
-reasoning is what users read in the saved markdown reports and what the
-downstream agents read as context.  Structured output is layered onto the
-three decision-making agents (Research Manager, Trader, Portfolio Manager)
-so that:
+框架的主要产物仍然是自然语言文本：用户会阅读已保存 Markdown 报告中的推理，
+下游 Agent 也会把它作为上下文。结构化输出叠加在三个决策 Agent（研究经理、
+交易员、投资组合经理）之上，以确保：
 
-- Their outputs follow consistent section headers across runs and providers
-- Each provider's native structured-output mode is used (json_schema for
-  OpenAI/xAI, response_schema for Gemini, tool-use for Anthropic)
-- Schema field descriptions become the model's output instructions, freeing
-  the prompt body to focus on context and the rating-scale guidance
-- A render helper turns the parsed Pydantic instance back into the same
-  markdown shape the rest of the system already consumes, so display,
-  memory log, and saved reports keep working unchanged
+- 不同运行和服务商都使用一致的输出章节；
+- 使用各服务商的原生结构化输出模式（OpenAI/xAI 使用 json_schema，Gemini 使用
+  response_schema，Anthropic 使用 tool-use）；
+- schema 字段描述成为模型的输出指令，让提示词正文可以专注于上下文和评级尺度；
+- 渲染辅助函数将解析后的 Pydantic 实例转换回系统已有的 Markdown 结构，保证展示、
+  记忆日志和已保存报告继续正常工作。
 """
 
 from __future__ import annotations
@@ -26,27 +22,26 @@ from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
-# LLMs sometimes write a placeholder string ("None", "N/A", ...) into an optional
-# numeric field instead of omitting it. Coerce those to None so the structured
-# call validates instead of erroring (#1058). Pydantic still parses real numeric
-# strings ("189.5") to float.
+# LLM 有时会把占位字符串（"None"、"N/A" 等）写入可选数值字段，而不是省略字段。
+# 将这些值转换为 None，使结构化调用可以通过校验而不是报错（#1058）。Pydantic
+# 仍会把真实数字字符串（"189.5"）解析为 float。
 _NULLISH_FLOAT = {"", "none", "n/a", "na", "null", "nil", "-", "tbd", "unknown"}
 
 
 def _coerce_optional_float(value):
     if isinstance(value, str) and value.strip().lower() in _NULLISH_FLOAT:
-        logger.debug("_coerce_optional_float coerced nullish value %r to None", value)
+        logger.debug("_coerce_optional_float 已将类空值 %r 转换为 None", value)
         return None
     return value
 
 
 # ---------------------------------------------------------------------------
-# Shared rating types
+# 共享评级类型
 # ---------------------------------------------------------------------------
 
 
 class PortfolioRating(str, Enum):
-    """5-tier rating used by the Research Manager and Portfolio Manager."""
+    """研究经理和投资组合经理使用的五档评级。"""
 
     BUY = "Buy"
     OVERWEIGHT = "Overweight"
@@ -56,12 +51,11 @@ class PortfolioRating(str, Enum):
 
 
 class TraderAction(str, Enum):
-    """3-tier transaction direction used by the Trader.
+    """交易员使用的三档交易方向。
 
-    The Trader's job is to translate the Research Manager's investment plan
-    into a concrete transaction proposal: should the desk execute a Buy, a
-    Sell, or sit on Hold this round.  Position sizing and the nuanced
-    Overweight / Underweight calls happen later at the Portfolio Manager.
+    交易员负责将研究经理的投资计划转化为具体交易提案：本轮交易台应买入、卖出
+    还是持有。仓位大小以及更细致的 Overweight / Underweight 判断由投资组合
+    经理稍后完成。
     """
 
     BUY = "Buy"
@@ -70,46 +64,40 @@ class TraderAction(str, Enum):
 
 
 # ---------------------------------------------------------------------------
-# Research Manager
+# 研究经理
 # ---------------------------------------------------------------------------
 
 
 class ResearchPlan(BaseModel):
-    """Structured investment plan produced by the Research Manager.
+    """研究经理生成的结构化投资计划。
 
-    Hand-off to the Trader: the recommendation pins the directional view,
-    the rationale captures which side of the bull/bear debate carried the
-    argument, and the strategic actions translate that into concrete
-    instructions the trader can execute against.
+    交接给交易员时，recommendation 固定方向判断，rationale 说明看多/看空辩论中
+    哪一方的论据占优，strategic_actions 则将其转化为交易员可以执行的具体指令。
     """
 
     recommendation: PortfolioRating = Field(
         description=(
-            "The investment recommendation. Exactly one of Buy / Overweight / "
-            "Hold / Underweight / Sell. Reserve Hold for situations where the "
-            "evidence on both sides is genuinely balanced; otherwise commit to "
-            "the side with the stronger arguments."
+            "投资建议。必须且只能选择 Buy / Overweight / Hold / Underweight / Sell 之一。"
+            "只有双方证据确实均衡时才使用 Hold，否则应选择论据更有力的一方。"
         ),
     )
     rationale: str = Field(
         description=(
-            "Conversational summary of the key points from both sides of the "
-            "debate, ending with which arguments led to the recommendation. "
-            "Speak naturally, as if to a teammate."
+            "以对话方式总结辩论双方的关键观点，并在结尾说明哪些论据促成了该建议。"
+            "请自然表达，就像在向队友说明一样。"
         ),
     )
     strategic_actions: str = Field(
         description=(
-            "Concrete steps for the trader to implement the recommendation, "
-            "including position sizing guidance consistent with the rating."
+            "交易员执行该建议时应采取的具体步骤，包括与评级一致的仓位指导。"
         ),
     )
 
 
 def render_research_plan(plan: ResearchPlan) -> str:
-    """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
+    """将 ResearchPlan 渲染为 Markdown，供存储和交易员提示词使用。"""
     logger.debug(
-        "render_research_plan called: recommendation=%s", plan.recommendation.value,
+        "已调用 render_research_plan：recommendation=%s", plan.recommendation.value,
     )
     result = "\n".join([
         f"**Recommendation**: {plan.recommendation.value}",
@@ -118,44 +106,41 @@ def render_research_plan(plan: ResearchPlan) -> str:
         "",
         f"**Strategic Actions**: {plan.strategic_actions}",
     ])
-    logger.debug("render_research_plan produced %d chars", len(result))
+    logger.debug("render_research_plan 已生成 %d 个字符", len(result))
     return result
 
 
 # ---------------------------------------------------------------------------
-# Trader
+# 交易员
 # ---------------------------------------------------------------------------
 
 
 class TraderProposal(BaseModel):
-    """Structured transaction proposal produced by the Trader.
+    """交易员生成的结构化交易提案。
 
-    The trader reads the Research Manager's investment plan and the analyst
-    reports, then turns them into a concrete transaction: what action to
-    take, the reasoning that justifies it, and the practical levels for
-    entry, stop-loss, and sizing.
+    交易员读取研究经理的投资计划和分析师报告，然后将它们转化为具体交易：采取
+    什么行动、支持该行动的理由，以及实际的入场价、止损价和仓位水平。
     """
 
     action: TraderAction = Field(
-        description="The transaction direction. Exactly one of Buy / Hold / Sell.",
+        description="交易方向。必须且只能选择 Buy / Hold / Sell 之一。",
     )
     reasoning: str = Field(
         description=(
-            "The case for this action, anchored in the analysts' reports and "
-            "the research plan. Two to four sentences."
+            "支持该行动的理由，必须以分析师报告和研究计划为依据。使用两到四句话。"
         ),
     )
     entry_price: float | None = Field(
         default=None,
-        description="Optional entry price target in the instrument's quote currency.",
+        description="可选的入场价格目标，单位为该标的的报价货币。",
     )
     stop_loss: float | None = Field(
         default=None,
-        description="Optional stop-loss price in the instrument's quote currency.",
+        description="可选的止损价格，单位为该标的的报价货币。",
     )
     position_sizing: str | None = Field(
         default=None,
-        description="Optional sizing guidance, e.g. '5% of portfolio'.",
+        description="可选的仓位指导，例如“占投资组合的 5%”。",
     )
 
     @field_validator("entry_price", "stop_loss", mode="before")
@@ -165,13 +150,12 @@ class TraderProposal(BaseModel):
 
 
 def render_trader_proposal(proposal: TraderProposal) -> str:
-    """Render a TraderProposal to markdown.
+    """将 TraderProposal 渲染为 Markdown。
 
-    The trailing ``FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**`` line is
-    preserved for backward compatibility with the analyst stop-signal text
-    and any external code that greps for it.
+    末尾的 ``FINAL TRANSACTION PROPOSAL: **BUY/HOLD/SELL**`` 行为兼容分析师停止
+    信号文本以及通过 grep 查找该文本的外部代码而保留。
     """
-    logger.debug("render_trader_proposal called: action=%s", proposal.action.value)
+    logger.debug("已调用 render_trader_proposal：action=%s", proposal.action.value)
     parts = [
         f"**Action**: {proposal.action.value}",
         "",
@@ -188,50 +172,45 @@ def render_trader_proposal(proposal: TraderProposal) -> str:
         f"FINAL TRANSACTION PROPOSAL: **{proposal.action.value.upper()}**",
     ])
     result = "\n".join(parts)
-    logger.debug("render_trader_proposal produced %d chars", len(result))
+    logger.debug("render_trader_proposal 已生成 %d 个字符", len(result))
     return result
 
 
 # ---------------------------------------------------------------------------
-# Portfolio Manager
+# 投资组合经理
 # ---------------------------------------------------------------------------
 
 
 class PortfolioDecision(BaseModel):
-    """Structured output produced by the Portfolio Manager.
+    """投资组合经理生成的结构化输出。
 
-    The model fills every field as part of its primary LLM call; no separate
-    extraction pass is required. Field descriptions double as the model's
-    output instructions, so the prompt body only needs to convey context and
-    the rating-scale guidance.
+    模型会在主要 LLM 调用中填写全部字段，不需要单独的提取步骤。字段描述同时
+    充当模型的输出指令，因此提示词正文只需传递上下文和评级尺度说明。
     """
 
     rating: PortfolioRating = Field(
         description=(
-            "The final position rating. Exactly one of Buy / Overweight / Hold / "
-            "Underweight / Sell, picked based on the analysts' debate."
+            "最终仓位评级。必须根据分析师辩论选择 Buy / Overweight / Hold / Underweight / Sell 之一。"
         ),
     )
     executive_summary: str = Field(
         description=(
-            "A concise action plan covering entry strategy, position sizing, "
-            "key risk levels, and time horizon. Two to four sentences."
+            "简洁的行动计划，涵盖入场策略、仓位大小、关键风险水平和持有周期。使用两到四句话。"
         ),
     )
     investment_thesis: str = Field(
         description=(
-            "Detailed reasoning anchored in specific evidence from the analysts' "
-            "debate. If prior lessons are referenced in the prompt context, "
-            "incorporate them; otherwise rely solely on the current analysis."
+            "以分析师辩论中的具体证据为依据进行详细推理。如果提示词上下文提供了过往经验，"
+            "请将其纳入分析；否则只依赖当前分析。"
         ),
     )
     price_target: float | None = Field(
         default=None,
-        description="Optional target price in the instrument's quote currency.",
+        description="可选的目标价格，单位为该标的的报价货币。",
     )
     time_horizon: str | None = Field(
         default=None,
-        description="Optional recommended holding period, e.g. '3-6 months'.",
+        description="可选的建议持有周期，例如“3-6 个月”。",
     )
 
     @field_validator("price_target", mode="before")
@@ -241,14 +220,13 @@ class PortfolioDecision(BaseModel):
 
 
 def render_pm_decision(decision: PortfolioDecision) -> str:
-    """Render a PortfolioDecision back to the markdown shape the rest of the system expects.
+    """将 PortfolioDecision 渲染回系统其余部分所需的 Markdown 结构。
 
-    Memory log, CLI display, and saved report files all read this markdown,
-    so the rendered output preserves the exact section headers (``**Rating**``,
-    ``**Executive Summary**``, ``**Investment Thesis**``) that downstream
-    parsers and the report writers already handle.
+    记忆日志、Web 展示和已保存报告文件都会读取该 Markdown，因此渲染结果保留
+    下游解析器和报告写入器已经支持的精确章节标识（``**Rating**``、
+    ``**Executive Summary**``、``**Investment Thesis**``）。
     """
-    logger.debug("render_pm_decision called: rating=%s", decision.rating.value)
+    logger.debug("已调用 render_pm_decision：rating=%s", decision.rating.value)
     parts = [
         f"**Rating**: {decision.rating.value}",
         "",
@@ -261,20 +239,19 @@ def render_pm_decision(decision: PortfolioDecision) -> str:
     if decision.time_horizon:
         parts.extend(["", f"**Time Horizon**: {decision.time_horizon}"])
     result = "\n".join(parts)
-    logger.debug("render_pm_decision produced %d chars", len(result))
+    logger.debug("render_pm_decision 已生成 %d 个字符", len(result))
     return result
 
 
 # ---------------------------------------------------------------------------
-# Sentiment Analyst
+# 情绪分析师
 # ---------------------------------------------------------------------------
 
 
 class SentimentBand(str, Enum):
-    """Discrete sentiment direction produced by the Sentiment Analyst.
+    """情绪分析师生成的离散情绪方向。
 
-    Six tiers keep the signal granular enough to be actionable while remaining
-    small enough for every provider to map reliably from its JSON output.
+    六个等级既能让信号足够细致、便于执行，又能让各服务商可靠地从 JSON 输出映射。
     """
 
     BULLISH = "Bullish"
@@ -286,69 +263,54 @@ class SentimentBand(str, Enum):
 
 
 class SentimentReport(BaseModel):
-    """Structured sentiment report produced by the Sentiment Analyst.
+    """情绪分析师生成的结构化情绪报告。
 
-    Replaces the previous free-form prose output so downstream consumers
-    (dashboards, audit logs, PDF renderers, other agents) can read
-    ``overall_band`` and ``overall_score`` without maintaining fragile regex
-    fallbacks that drift with every model release. ``narrative`` preserves the
-    rich source-by-source analysis; ``render_sentiment_report`` prepends a
-    deterministic header so the saved report stays human-readable.
+    它替代原来的自由文本输出，使下游消费者（仪表盘、审计日志、PDF 渲染器和
+    其他 Agent）可以直接读取 ``overall_band`` 和 ``overall_score``，不再维护
+    会随着模型版本变化而失效的脆弱正则回退。``narrative`` 保留丰富的逐来源
+    分析，``render_sentiment_report`` 添加确定性的标题，使保存的报告易于阅读。
     """
 
     overall_band: SentimentBand = Field(
         description=(
-            "Overall sentiment direction. Exactly one of: "
-            "Bullish / Mildly Bullish / Neutral / Mixed / Mildly Bearish / Bearish. "
-            "Use Mixed when sources point in clearly different directions. "
-            "Use Neutral only when all sources are genuinely silent or non-committal."
+            "总体情绪方向。必须且只能选择 Bullish / Mildly Bullish / Neutral / Mixed / "
+            "Mildly Bearish / Bearish 之一。来源明确指向不同方向时使用 Mixed；只有所有来源确实沉默或不明确时才使用 Neutral。"
         ),
     )
     overall_score: float = Field(
         ge=0.0,
         le=10.0,
         description=(
-            "Numeric sentiment intensity on a 0–10 scale. "
-            "0 = maximally bearish, 5 = neutral, 10 = maximally bullish. "
-            "Guideline for consistency with overall_band: "
-            "Bullish ~6.5–10, Mildly Bullish ~5.5–6.4, Neutral/Mixed ~4.5–5.5, "
-            "Mildly Bearish ~3.5–4.4, Bearish ~0–3.4. "
-            "Only the 0–10 bounds are enforced."
+            "0–10 范围的数值情绪强度。0 = 极度看空，5 = 中性，10 = 极度看多。"
+            "为保持与 overall_band 一致，建议：Bullish 约 6.5–10，Mildly Bullish 约 5.5–6.4，"
+            "Neutral/Mixed 约 4.5–5.5，Mildly Bearish 约 3.5–4.4，Bearish 约 0–3.4。"
+            "系统只强制校验 0–10 边界。"
         ),
     )
     confidence: Literal["low", "medium", "high"] = Field(
         description=(
-            "Confidence in the assessment based on data quality and sample size. "
-            "Use 'low' when one or more sources returned a placeholder or fewer "
-            "than 5 data points; 'medium' when data is present but sparse; "
-            "'high' when all three sources returned substantive data."
+            "根据数据质量和样本量判断评估置信度。当一个或多个来源返回占位符或少于 5 个数据点时使用 'low'；"
+            "数据存在但较稀疏时使用 'medium'；三个来源都返回实质数据时使用 'high'。"
         ),
     )
     narrative: str = Field(
         description=(
-            "Full sentiment report covering, in order: "
-            "(1) source-by-source breakdown with specific evidence (cite message "
-            "counts, ratios, notable posts); "
-            "(2) cross-source divergences and alignments; "
-            "(3) dominant narrative themes; "
-            "(4) catalysts and risks surfaced by the data; "
-            "(5) a markdown table summarising key sentiment signals, their "
-            "direction, source, and supporting evidence. "
-            "Keep it informative and substantive: develop each section thoroughly "
-            "with concrete evidence so every point adds new signal for the trader."
+            "完整情绪报告，按以下顺序涵盖：(1) 逐来源拆解并提供具体证据（引用消息数、比例和重要帖子）；"
+            "(2) 来源之间的分歧与一致；(3) 主导叙事主题；(4) 数据揭示的催化剂和风险；"
+            "(5) 用 Markdown 表格总结关键情绪信号、方向、来源和支持证据。"
+            "报告应有信息量且内容扎实，每个部分都要用具体证据充分展开，为交易员提供新的有效信号。"
         ),
     )
 
 
 def render_sentiment_report(report: SentimentReport) -> str:
-    """Render a SentimentReport to the markdown shape the rest of the system expects.
+    """将 SentimentReport 渲染为系统其余部分所需的 Markdown 结构。
 
-    The structured header (band + score + confidence) is prepended to the
-    narrative so the saved report is both human-readable and machine-parseable
-    without regex.
+    将结构化标题（区间、分数和置信度）添加到叙述前，使已保存报告既易于阅读，
+    又可以在不使用正则的情况下由机器解析。
     """
     logger.debug(
-        "render_sentiment_report called: band=%s, score=%s, confidence=%s",
+        "已调用 render_sentiment_report：band=%s，score=%s，confidence=%s",
         report.overall_band.value, report.overall_score, report.confidence,
     )
     result = "\n".join([
@@ -358,5 +320,5 @@ def render_sentiment_report(report: SentimentReport) -> str:
         "",
         report.narrative,
     ])
-    logger.debug("render_sentiment_report produced %d chars", len(result))
+    logger.debug("render_sentiment_report 已生成 %d 个字符", len(result))
     return result

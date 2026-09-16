@@ -3,61 +3,35 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="TradingAgents 多智能体 AI 股票研报" />
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=1" />
-    <title>TradingAgents · AI 股票研报</title>
-    <link rel="stylesheet" href="/static/styles.css?v=workspace-1" />
+    <meta name="description" content="投研智报：多智能体股票投研与 AI 资讯日报" />
+    <link rel="icon" type="image/png" href="/static/touyan-zhibao-icon.png?v=1" />
+    <title>投研智报 · 股票投研与 AI 日报</title>
+    <link rel="stylesheet" href="/static/styles.css?v=workspace-6" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
     <div class="ambient ambient-two"></div>
     <header class="topbar">
-      <a class="brand" href="/" aria-label="TradingAgents 首页">
-        <span class="brand-mark">T</span>
-        <span>TradingAgents</span>
+      <a class="brand" href="/" aria-label="投研智报首页">
+        <img class="brand-logo" src="/static/touyan-zhibao-icon.png?v=1" alt="" aria-hidden="true" />
+        <span>投研智报</span>
       </a>
       <div class="topbar-actions">
+        <button class="history-trigger nav-link active" id="stock-tab-trigger" type="button" aria-pressed="true">股票研报</button>
         <button class="history-trigger nav-link" id="news-tab-trigger" type="button" aria-pressed="false">AI 资讯日报</button>
-        <button class="history-trigger" id="history-trigger" type="button">历史研报</button>
-        <button class="model-settings-trigger" id="model-settings-trigger" type="button">模型配置</button>
-        <span class="status-pill"><i></i> AI 研究引擎在线</span>
       </div>
     </header>
 
     <main>
-      <section class="module-hub" id="module-hub" aria-label="选择工作模块">
-        <div class="module-hub-heading">
-          <span class="eyebrow">TRADINGAGENTS WORKSPACE</span>
-          <h2>选择你的研究工作台</h2>
-          <p>一个入口，两个模块：深入研究一只股票，或快速回溯每天的 AI 行业热点。</p>
-        </div>
-        <div class="module-hub-grid">
-          <a class="module-hub-card module-hub-card-primary" href="#analysis-form">
-            <span class="module-hub-index">01 · RESEARCH</span>
-            <span class="module-hub-icon">↗</span>
-            <strong>股票分析</strong>
-            <p>让多智能体并行分析技术、基本面、新闻和风险，形成一份可读的投资研究报告。</p>
-            <span class="module-hub-action">进入股票分析 <b>→</b></span>
-          </a>
-          <a class="module-hub-card module-hub-card-news" href="/news">
-            <span class="module-hub-index">02 · DAILY INTELLIGENCE</span>
-            <span class="module-hub-icon">✦</span>
-            <strong>AI 资讯日报</strong>
-            <p>按准确日期整理 AI 行业新闻，快速查看当日热点、精选内容与原文出处。</p>
-            <span class="module-hub-action">进入 AI 资讯日报 <b>→</b></span>
-          </a>
-        </div>
-      </section>
-
       <section class="hero" id="hero">
-        <div class="eyebrow">MULTI-AGENT EQUITY RESEARCH</div>
+        <div class="eyebrow">AI 股票投研</div>
         <h1>把复杂的市场信息，<br /><span>整理成一份可读的研报。</span></h1>
         <p class="hero-copy">技术、基本面、新闻与市场情绪并行研究，再经过多空讨论和风险评估，形成有依据的投资参考。</p>
 
         <form class="search-panel" id="analysis-form">
           <label class="field ticker-field">
             <span>股票代码</span>
-            <input id="ticker" name="ticker" value="NVDA" maxlength="24" autocomplete="off" required />
+            <input id="ticker" name="ticker" placeholder="请输入股票代码" maxlength="24" autocomplete="off" required />
           </label>
           <label class="field">
             <span>分析日期</span>
@@ -72,9 +46,12 @@
           </label>
           <label class="field model-field">
             <span>研究模型</span>
-            <select id="model-profile" name="model_profile_id">
-              <option value="">当前系统配置</option>
-            </select>
+            <div class="model-select-row">
+              <select id="model-profile" name="model_profile_id">
+                <option value="">系统默认</option>
+              </select>
+              <button class="model-inline-trigger" id="model-settings-trigger" type="button">管理模型</button>
+            </div>
           </label>
           <button class="primary-button" type="submit">
             <span>生成 AI 研报</span><b>→</b>
@@ -84,6 +61,29 @@
           <p class="form-note" id="form-note">示例：AAPL、NVDA、600519.SS、0700.HK、BTC-USD</p>
           <button class="locator-trigger" id="locator-trigger" type="button"><span>✦</span> 不知道代码？让 AI 帮你找公司</button>
         </div>
+        <section class="history-picker-panel" aria-label="历史研报">
+          <div class="history-picker-heading">
+            <div>
+              <span class="process-kicker">REPORT ARCHIVE</span>
+              <h2>历史研报</h2>
+              <p>按股票代码查找以前生成的研报，列表中会显示分析日期和生成时间。</p>
+            </div>
+            <span class="history-picker-state" id="history-picker-state" aria-live="polite"></span>
+          </div>
+          <div class="history-picker-row">
+            <form class="history-filter" id="history-filter">
+              <label for="history-query"><span>股票代码</span><input id="history-query" placeholder="例如 NVDA 或 600519.SS" autocomplete="off" /></label>
+              <button class="secondary-button" type="submit">查找</button>
+            </form>
+            <label class="history-picker" for="history-report-select">
+              <span>选择研报</span>
+              <select id="history-report-select">
+                <option value="">选择已生成的研报</option>
+              </select>
+            </label>
+            <button class="ghost-button" id="history-open" type="button" disabled>查看研报</button>
+          </div>
+        </section>
 
         <section class="locator-panel hidden" id="locator-panel" aria-label="AI 股票定位助手">
           <div class="locator-heading">
@@ -117,11 +117,12 @@
           <div class="locator-results" id="locator-results" aria-live="polite"></div>
         </section>
 
-        <section class="model-settings hidden" id="model-settings" aria-label="模型配置中心">
+        <section class="model-settings modal-backdrop hidden" id="model-settings" aria-label="模型配置中心">
+          <div class="model-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="model-settings-title">
           <div class="model-settings-heading">
             <div>
               <span class="process-kicker">MODEL CONTROL CENTER</span>
-              <h2>添加并选择你的 AI 模型</h2>
+              <h2 id="model-settings-title">添加并选择你的 AI 模型</h2>
               <p>保存多个第三方或自定义 Endpoint；可自动读取可用模型、测试连通性，并用于后续研报。</p>
             </div>
             <button class="locator-close" id="model-settings-close" type="button" aria-label="关闭模型配置">×</button>
@@ -152,26 +153,8 @@
               <div id="discovered-models" class="discovered-models hidden"></div>
             </form>
           </div>
-        </section>
-      </section>
-
-      <section class="history-center" id="history-center" aria-label="历史研报中心">
-        <div class="history-header">
-          <div>
-            <span class="eyebrow">REPORT ARCHIVE</span>
-            <h2>历史研报</h2>
-            <p>按股票代码、关键词和分析日期快速定位过去生成的完整研报。</p>
           </div>
-          <button class="ghost-button" id="history-refresh" type="button">刷新列表</button>
-        </div>
-        <div class="history-filters">
-          <label><span>搜索公司或代码</span><input id="history-query" placeholder="例如：NVDA、贵州茅台" /></label>
-          <label><span>开始日期</span><input id="history-start" type="date" /></label>
-          <label><span>结束日期</span><input id="history-end" type="date" /></label>
-          <button class="secondary-button" id="history-search" type="button">查找报告</button>
-        </div>
-        <div class="history-state" id="history-state">正在读取历史研报…</div>
-        <div class="history-list" id="history-list"></div>
+        </section>
       </section>
 
       <section class="process-card hidden" id="process" aria-live="polite">
@@ -198,7 +181,8 @@
         </div>
       </section>
 
-      <section class="report hidden" id="report">
+      <section class="report modal-backdrop hidden" id="report" aria-label="股票投资研究报告">
+        <div class="report-dialog" role="dialog" aria-modal="true" aria-labelledby="report-ticker">
         <div class="report-header">
           <div>
             <span class="eyebrow">AI RESEARCH REPORT</span>
@@ -206,8 +190,9 @@
             <p id="report-date"></p>
           </div>
           <div class="report-actions">
-            <button class="ghost-button" id="back-to-history">历史研报</button>
+            <button class="ghost-button danger-button" id="report-delete" type="button">删除研报</button>
             <button class="ghost-button" id="new-analysis">重新分析</button>
+            <button class="ghost-button" id="report-close" type="button" aria-label="关闭研报">关闭</button>
           </div>
         </div>
 
@@ -228,13 +213,29 @@
           <article class="report-content" id="report-content"></article>
         </div>
         <div class="disclaimer">本报告由 AI 基于可用数据自动生成，仅用于研究与信息参考，不构成任何投资建议。市场有风险，决策需谨慎。</div>
+        </div>
+      </section>
+
+      <section class="history-results-modal modal-backdrop hidden" id="history-results-modal" aria-label="历史研报查询结果">
+        <div class="history-results-dialog" role="dialog" aria-modal="true" aria-labelledby="history-results-title">
+          <div class="history-results-header">
+            <div>
+              <span class="process-kicker">REPORT SEARCH</span>
+              <h2 id="history-results-title">查询历史研报</h2>
+              <p id="history-results-query">输入股票代码后，在这里查看匹配结果。</p>
+            </div>
+            <button class="locator-close" id="history-results-close" type="button" aria-label="关闭查询结果">×</button>
+          </div>
+          <div class="history-results-state" id="history-results-state" aria-live="polite"></div>
+          <div class="history-results-list" id="history-results-list"></div>
+        </div>
       </section>
 
       <section id="news-module-root" class="hidden" aria-label="AI 资讯模块"></section>
     </main>
 
-    <footer>TradingAgents · Multi-Agent Financial Research Framework</footer>
-    <script src="/static/app.js?v=history-center-2" defer></script>
-    <script src="/static/news_loader.js?v=3" defer></script>
+    <footer>投研智报 · 多智能体股票投研与 AI 资讯日报</footer>
+    <script src="/static/app.js?v=history-search-modal-1" defer></script>
+    <script src="/static/news_loader.js?v=4" defer></script>
   </body>
 </html>

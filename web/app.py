@@ -33,7 +33,7 @@ from web.metrics import (
 from web.model_profiles import MODEL_TEMPLATES, model_profile_service
 from web.news.api import router as news_router
 from web.news.config import NewsSettings
-from web.report_history import get_report, list_reports
+from web.report_history import delete_report, get_report, list_reports
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class ModelProfilePayload(BaseModel):
 
 
 app = FastAPI(
-    title="TradingAgents AI 研报",
+    title="投研智报 · AI 股票投研与资讯日报",
     description="面向普通投资者的多智能体股票研究报告服务",
     version="1.0.0",
     docs_url=None,
@@ -249,10 +249,20 @@ async def _execute(task_id: str, payload: AnalysisRequest) -> None:
         ANALYSIS_TASKS_TOTAL.labels(status="running").inc()
         _update_record(task_id, status="running", phase="多智能体正在协作分析")
         start = time.time()
+        logger.info(
+            "分析任务开始：task_id=%s ticker=%s trade_date=%s asset_type=%s analysts=%s profile_id=%s",
+            task_id, payload.ticker, payload.trade_date.isoformat(), payload.asset_type,
+            payload.analysts, payload.model_profile_id,
+        )
         try:
             result = await asyncio.to_thread(_run_analysis, payload)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Analysis %s failed", task_id)
+            duration = time.time() - start
+            logger.exception(
+                "分析任务失败：task_id=%s ticker=%s trade_date=%s duration=%.1fs error=%s",
+                task_id, payload.ticker, payload.trade_date.isoformat(), duration,
+                type(exc).__name__,
+            )
             ANALYSIS_TASKS_TOTAL.labels(status="failed").inc()
             ANALYSIS_TASK_DURATION_SECONDS.labels(
                 ticker=payload.ticker, asset_type=payload.asset_type
@@ -276,18 +286,22 @@ async def _execute(task_id: str, payload: AnalysisRequest) -> None:
             phase="研报已生成",
             result=result,
         )
+        logger.info(
+            "分析任务完成：task_id=%s ticker=%s trade_date=%s decision=%s report_id=%s duration=%.1fs",
+            task_id, payload.ticker, payload.trade_date.isoformat(), result.get("decision"),
+            result.get("report_id"), time.time() - start,
+        )
 
 
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
-    logger.debug("Serving index page")
+    logger.debug("正在提供首页")
     return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/health")
 @app.get("/api/health", include_in_schema=False)
 async def health() -> JSONResponse:
-    logger.debug("Health check requested")
     if not _check_critical_dependencies():
         return JSONResponse(
             status_code=503,
@@ -317,13 +331,13 @@ async def search_instruments(payload: InstrumentSearchRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except requests.RequestException as exc:
-        logger.warning("Instrument directory unavailable: %s", exc)
+        logger.warning("标的目录不可用：%s", exc)
         raise HTTPException(status_code=503, detail="证券目录暂时不可用，请稍后重试") from exc
 
 
 @app.get("/api/model-templates")
 async def get_model_templates() -> dict:
-    logger.debug("Model templates requested: %d template(s)", len(MODEL_TEMPLATES))
+    logger.debug("收到模型模板请求：%d 个模板", len(MODEL_TEMPLATES))
     return {"templates": MODEL_TEMPLATES}
 
 
@@ -353,18 +367,27 @@ async def report_detail(report_id: str) -> dict:
     return result
 
 
+@app.delete("/api/reports/{report_id}")
+async def delete_report_detail(report_id: str) -> dict[str, bool]:
+    deleted = await asyncio.to_thread(delete_report, report_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="历史报告不存在或已损坏")
+    logger.info("历史研报已删除：%s", report_id)
+    return {"ok": True}
+
+
 @app.get("/api/model-profiles")
 async def list_model_profiles() -> dict:
-    logger.debug("Model profiles listed")
+    logger.debug("已列出模型配置")
     return {"profiles": model_profile_service.list()}
 
 
 @app.post("/api/model-profiles", status_code=201)
 async def create_model_profile(payload: ModelProfilePayload) -> dict:
-    logger.debug("Create model profile: name=%r base_url=%s", payload.name, payload.base_url)
+    logger.debug("创建模型配置：名称=%r，base_url=%s", payload.name, payload.base_url)
     try:
         profile = model_profile_service.save(payload.model_dump())
-        logger.info("Created model profile %r (id=%s)", payload.name, profile.get("id"))
+        logger.info("已创建模型配置 %r（id=%s）", payload.name, profile.get("id"))
         return {"profile": profile}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -372,10 +395,10 @@ async def create_model_profile(payload: ModelProfilePayload) -> dict:
 
 @app.put("/api/model-profiles/{profile_id}")
 async def update_model_profile(profile_id: str, payload: ModelProfilePayload) -> dict:
-    logger.debug("Update model profile %s: name=%r", profile_id, payload.name)
+    logger.debug("更新模型配置 %s：名称=%r", profile_id, payload.name)
     try:
         profile = model_profile_service.save(payload.model_dump(), profile_id)
-        logger.info("Updated model profile %s (name=%r)", profile_id, payload.name)
+        logger.info("已更新模型配置 %s（名称=%r）", profile_id, payload.name)
         return {"profile": profile}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -385,17 +408,17 @@ async def update_model_profile(profile_id: str, payload: ModelProfilePayload) ->
 
 @app.delete("/api/model-profiles/{profile_id}", status_code=204)
 async def delete_model_profile(profile_id: str) -> None:
-    logger.debug("Delete model profile %s", profile_id)
+    logger.debug("删除模型配置 %s", profile_id)
     try:
         model_profile_service.delete(profile_id)
-        logger.info("Deleted model profile %s", profile_id)
+        logger.info("已删除模型配置 %s", profile_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/api/model-profiles/{profile_id}/discover")
 async def discover_models(profile_id: str) -> dict:
-    logger.debug("Discover models for profile %s", profile_id)
+    logger.debug("发现配置 %s 的模型", profile_id)
     try:
         result = await asyncio.to_thread(model_profile_service.discover, profile_id)
         logger.info(
@@ -406,32 +429,32 @@ async def discover_models(profile_id: str) -> dict:
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except requests.RequestException as exc:
-        logger.info("Model discovery failed for %s: %s", profile_id, exc)
+        logger.warning("发现配置 %s 的模型失败：%s", profile_id, exc)
         raise HTTPException(status_code=502, detail="无法读取模型列表，请检查 Endpoint、密钥和网络") from exc
 
 
 @app.post("/api/model-profiles/{profile_id}/test")
 async def test_model_profile(profile_id: str) -> dict:
-    logger.debug("Test model profile %s", profile_id)
+    logger.debug("测试模型配置 %s", profile_id)
     try:
         result = await asyncio.to_thread(model_profile_service.test, profile_id)
-        logger.info("Model test succeeded for profile %s", profile_id)
+        logger.info("模型配置测试成功：%s", profile_id)
         return result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except requests.RequestException as exc:
-        logger.info("Model test failed for %s: %s", profile_id, exc)
+        logger.warning("模型配置测试失败：%s：%s", profile_id, exc)
         raise HTTPException(status_code=502, detail="模型连接失败，请检查 Endpoint、模型名、密钥或账户余额") from exc
 
 
 @app.post("/api/analyses", status_code=202)
 async def create_analysis(payload: AnalysisRequest) -> dict[str, str]:
+    task_id = uuid.uuid4().hex
     logger.info(
-        "Analysis queued: ticker=%s trade_date=%s asset_type=%s analysts=%s profile_id=%s",
-        payload.ticker, payload.trade_date.isoformat(), payload.asset_type,
+        "分析任务已排队：task_id=%s ticker=%s trade_date=%s asset_type=%s analysts=%s profile_id=%s",
+        task_id, payload.ticker, payload.trade_date.isoformat(), payload.asset_type,
         payload.analysts, payload.model_profile_id,
     )
-    task_id = uuid.uuid4().hex
     now = _utc_now()
     record = AnalysisRecord(
         id=task_id,
@@ -451,7 +474,7 @@ async def create_analysis(payload: AnalysisRequest) -> dict[str, str]:
 
 @app.get("/api/analyses/{task_id}", response_model=AnalysisRecord)
 async def get_analysis(task_id: str) -> AnalysisRecord:
-    logger.debug("Analysis status requested for %s", task_id)
+    logger.debug("收到 %s 的分析状态请求", task_id)
     with _records_lock:
         record = _records.get(task_id)
     if record is None:

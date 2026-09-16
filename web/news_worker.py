@@ -15,19 +15,19 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-import time
 import threading
+import time
 
+from web.metrics import NEWS_WORKER_HEARTBEAT_AGE_SECONDS
 from web.news.config import NewsSettings, all_sources_enabled, sources_for_settings
 from web.news.repository import NewsRepository
 from web.news.scheduler import NewsScheduler
-from web.metrics import generate_metrics, NEWS_WORKER_HEARTBEAT_AGE_SECONDS
 
 logger = logging.getLogger("web.news_worker")
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="TradingAgents AI 资讯采集 Worker")
+    parser = argparse.ArgumentParser(description="投研智报 AI 资讯采集 Worker")
     parser.add_argument("--once", action="store_true", help="执行一轮采集后退出")
     parser.add_argument("--health", action="store_true", help="健康检查模式：心跳新鲜则退出码 0")
     parser.add_argument("--db", default=None, help="覆盖 SQLite 数据库路径")
@@ -43,7 +43,7 @@ def _start_metrics_server(port: int):
     """启动 Prometheus metrics HTTP 服务器。"""
     from prometheus_client import start_http_server
     start_http_server(port)
-    logger.info(f"Prometheus metrics server started on port {port}")
+    logger.info(f"Prometheus metrics HTTP 服务器已启动，端口 {port}")
 
 
 def _heartbeat_monitor(scheduler: NewsScheduler):
@@ -59,11 +59,14 @@ def _heartbeat_monitor(scheduler: NewsScheduler):
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
     args = _build_parser().parse_args(argv)
+    if not args.health:
+        # 健康检查是独立短进程：正常时不初始化日志、不创建日志文件，也不产生
+        # 探活输出；只有检查失败时才通过 stderr 返回诊断给 Docker healthcheck。
+        from tradingagents.logging_utils import setup_logging
+
+        # 与 Web 进程使用同一套控制台 + 按天轮转文件日志配置。
+        setup_logging()
 
     settings = NewsSettings.from_env()
     if args.db:
@@ -92,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
         tolerance = max(settings.fetch_interval_minutes * 60 * 3, 900)
         repo.close()
         if age is None or age > tolerance:
-            print(f"heartbeat stale: {age}", file=sys.stderr)
+            print(f"新闻 Worker 心跳已过期：{age}", file=sys.stderr)
             return 1
         return 0
 
@@ -105,9 +108,10 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.once:
+            logger.info("新闻工作器开始执行单轮采集")
             summary = scheduler.run_once()
             repo.close()
-            logger.info("One-shot run finished: %s", summary)
+            logger.info("单轮采集完成：%s", summary)
             return 0 if summary["sources_failed"] == 0 else 1
         scheduler.run_forever()
     finally:

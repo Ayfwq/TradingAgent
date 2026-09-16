@@ -23,7 +23,7 @@ class DummyLLMClient(BaseLLMClient):
 
 @pytest.mark.unit
 class ModelValidationTests(unittest.TestCase):
-    def test_cli_catalog_models_are_all_validator_approved(self):
+    def test_catalog_models_are_all_validator_approved(self):
         for provider, models in get_known_models().items():
             if provider in ("ollama", "openrouter"):
                 continue

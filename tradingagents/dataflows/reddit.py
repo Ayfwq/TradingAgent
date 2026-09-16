@@ -1,18 +1,16 @@
-"""Reddit search fetcher for ticker-specific discussion posts.
+"""获取与股票代码相关的 Reddit 讨论帖。
 
-Default path is Reddit's public Atom/RSS search feed
-(``reddit.com/r/{sub}/search.rss``). The richer JSON search endpoint
-(``/search.json``) is reliably WAF-blocked (``HTTP 403``) for public clients
-(issue #862), and probing it on every call only doubled our request volume
-against Reddit's per-IP rate limit — tripping ``429`` on the RSS fallback — so
-it is kept (``_fetch_subreddit_json``) but not used by default. On a 429 we back
-off once (honouring ``Retry-After``). RSS lacks score / comment counts, so those
-posts are marked and the formatter omits the metrics rather than printing fake
-zeros.
+默认路径是 Reddit 的公开 Atom/RSS 搜索源
+（``reddit.com/r/{sub}/search.rss``）。功能更丰富的 JSON 搜索端点
+（``/search.json``）对公开客户端通常会被 WAF 拦截（``HTTP 403``），
+每次调用都探测它还会使请求量翻倍，触发 Reddit 的单 IP 速率限制，
+导致 RSS 备用路径收到 ``429``，因此保留（``_fetch_subreddit_json``）
+但默认不使用。收到 429 时会退避一次（遵循 ``Retry-After``）。
+RSS 不提供得分和评论数，因此会标记这些帖子，格式化器也会省略相应指标，
+避免显示虚假的零值。
 
-No API key required. Returns formatted plaintext blocks ready for prompt
-injection and degrades gracefully — returns a placeholder string rather than
-raising, so callers never special-case missing data.
+无需 API 密钥。函数返回可直接注入提示词的格式化纯文本块，并以占位文本
+优雅处理异常，而不是抛出错误，让调用方无需专门处理缺失数据。
 """
 
 from __future__ import annotations
@@ -36,16 +34,14 @@ logger = logging.getLogger(__name__)
 
 _API = "https://www.reddit.com/r/{sub}/search.json?{qs}"
 _RSS = "https://www.reddit.com/r/{sub}/search.rss?{qs}"
-# A descriptive, identified User-Agent (per Reddit's API etiquette). Reddit
-# blocks generic/anonymous tokens like bare "Mozilla/5.0" or "curl/…" but
-# serves this one on both endpoints; the RSS feed accepts it even when the
-# JSON search endpoint 403s, so no browser-spoofing is needed.
+# 按照 Reddit API 规范设置可识别的 User-Agent。Reddit 会拦截裸的
+# “Mozilla/5.0”或“curl/…”等通用匿名标识，但两个端点都接受此标识；
+# 即使 JSON 搜索端点返回 403，RSS 源仍可使用，因此无需伪装浏览器。
 _UA = "tradingagents/0.2 (+https://github.com/TauricResearch/TradingAgents)"
 _ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 
-# Default subreddits ordered roughly by signal density for ticker-specific
-# discussion. wallstreetbets has the most volume but most noise; stocks /
-# investing trend more measured. Caller can override.
+# 按股票讨论信号密度大致排序的默认 subreddit。wallstreetbets 数量最多但噪声
+# 也最大；stocks / investing 的趋势更稳健。调用方可以覆盖此配置。
 DEFAULT_SUBREDDITS = ("wallstreetbets", "stocks", "investing")
 
 
@@ -54,13 +50,13 @@ def _search_qs(ticker: str, limit: int) -> str:
         "q": ticker,
         "restrict_sr": "on",
         "sort": "new",
-        "t": "week",  # last 7 days
+        "t": "week",  # 最近 7 天
         "limit": limit,
     })
 
 
 def _iso_to_timestamp(iso_str: str | None) -> float | None:
-    """Parse an Atom ``published`` timestamp to a UTC epoch, or None."""
+    """将 Atom 的 ``published`` 时间戳解析为 UTC 时间戳，失败时返回 None。"""
     if not iso_str:
         return None
     try:
@@ -71,10 +67,10 @@ def _iso_to_timestamp(iso_str: str | None) -> float | None:
 
 
 def _strip_html(content: str) -> str:
-    """Reduce the HTML body Reddit embeds in an Atom entry to plain text."""
+    """将 Reddit 嵌入 Atom 条目的 HTML 正文转换为纯文本。"""
     if not content:
         return ""
-    # Reddit wraps the real selftext between SC_OFF / SC_ON markers.
+    # Reddit 会将真正的 selftext 放在 SC_OFF / SC_ON 标记之间。
     if "<!-- SC_OFF -->" in content and "<!-- SC_ON -->" in content:
         content = content.split("<!-- SC_OFF -->")[1].split("<!-- SC_ON -->")[0]
     text = re.sub(r"<[^>]+>", " ", content)
@@ -82,7 +78,7 @@ def _strip_html(content: str) -> str:
 
 
 def _retry_after_seconds(exc: HTTPError) -> float | None:
-    """Seconds to wait from a 429's ``Retry-After`` header, capped at 30s."""
+    """读取 429 的 ``Retry-After`` 标头确定等待秒数，最多等待 30 秒。"""
     try:
         val = exc.headers.get("Retry-After") if getattr(exc, "headers", None) else None
         return min(float(val), 30.0) if val else None
@@ -97,12 +93,12 @@ def _fetch_subreddit_rss(
     timeout: float,
     _retry: bool = True,
 ) -> list[dict]:
-    """Default path: parse the public Atom search feed for a subreddit.
+    """默认路径：解析某个 subreddit 的公开 Atom 搜索源。
 
-    Carries no score / comment counts, so those fields are left None and the
-    post is tagged ``source="rss"`` for honest display. On a 429 (Reddit's
-    per-IP rate limit) we back off once — honouring ``Retry-After`` when
-    present — before giving up, so a transient burst doesn't blank the feed.
+    该源不包含得分和评论数，因此这些字段保持为 None，并以
+    ``source="rss"`` 标记帖子以便如实展示。收到 429（Reddit 的单 IP
+    速率限制）时会退避一次；如果存在 ``Retry-After`` 则遵循其值，
+    然后再放弃，避免短暂请求突发导致信息源为空。
     """
     url = _RSS.format(sub=sub, qs=_search_qs(ticker, limit))
     req = Request(url, headers={"User-Agent": _UA})
@@ -113,17 +109,17 @@ def _fetch_subreddit_rss(
         if exc.code == 429 and _retry:
             wait = _retry_after_seconds(exc) or 5.0
             logger.warning(
-                "Reddit RSS 429 for r/%s · %s — backing off %.1fs then retrying once",
+                "r/%s 的 Reddit RSS 返回 429 · %s —— 退避 %.1f 秒后重试一次",
                 sub, ticker, wait,
             )
             time.sleep(wait)
             return _fetch_subreddit_rss(ticker, sub, limit, timeout, _retry=False)
-        logger.warning("Reddit RSS fetch failed for r/%s · %s: %s", sub, ticker, exc)
+        logger.warning("获取 r/%s 的 Reddit RSS 失败 · %s：%s", sub, ticker, exc)
         return []
     except (OSError, http.client.HTTPException, ET.ParseError) as exc:
-        # OSError covers URLError/TimeoutError/connection resets; HTTPException
-        # covers chunked-transfer errors (IncompleteRead/BadStatusLine, #1024).
-        logger.warning("Reddit RSS fetch failed for r/%s · %s: %s", sub, ticker, exc)
+        # OSError 覆盖 URLError、TimeoutError 和连接重置；HTTPException 覆盖
+        # 分块传输错误（IncompleteRead/BadStatusLine，#1024）。
+        logger.warning("获取 r/%s 的 Reddit RSS 失败 · %s：%s", sub, ticker, exc)
         return []
 
     posts = []
@@ -150,13 +146,12 @@ def _fetch_subreddit_json(
     limit: int,
     timeout: float,
 ) -> list[dict]:
-    """Richer JSON search path (carries score / comment counts).
+    """功能更丰富的 JSON 搜索路径（包含得分和评论数）。
 
-    Reddit's WAF currently returns ``403 Blocked`` on this endpoint for
-    non-OAuth clients (issue #862), so it is NOT used by default — calling it on
-    every request only doubled our volume against the per-IP rate limit and
-    triggered 429s on the RSS fallback. Kept for the day the WAF relaxes or an
-    OAuth token is wired in; degrades to RSS on failure.
+    Reddit 的 WAF 目前会对非 OAuth 客户端在此端点返回 ``403 Blocked``
+   （问题 #862），因此默认不使用——每次请求调用它只会使单 IP 速率限制下
+    的请求量翻倍，并触发 RSS 备用路径的 429。保留此路径以便将来 WAF 放宽
+    限制或接入 OAuth token；失败时会降级到 RSS。
     """
     url = _API.format(sub=sub, qs=_search_qs(ticker, limit))
     req = Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
@@ -167,7 +162,7 @@ def _fetch_subreddit_json(
         return [c.get("data", {}) for c in children if isinstance(c, dict)]
     except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
         logger.warning(
-            "Reddit JSON fetch failed for r/%s · %s: %s — falling back to RSS feed.",
+            "获取 r/%s 的 Reddit JSON 失败 · %s：%s —— 回退到 RSS 源。",
             sub, ticker, exc,
         )
         return _fetch_subreddit_rss(ticker, sub, limit, timeout)
@@ -179,11 +174,11 @@ def _fetch_subreddit(
     limit: int,
     timeout: float,
 ) -> list[dict]:
-    """Fetch one subreddit, RSS-first.
+    """获取一个 subreddit，优先使用 RSS。
 
-    The JSON search endpoint is reliably WAF-blocked (403) for public clients,
-    so we go straight to the RSS feed — which serves our identified User-Agent
-    reliably — halving our request volume against Reddit's per-IP rate limit.
+    JSON 搜索端点对公开客户端通常会被 WAF 拦截（403），因此直接使用
+    RSS 源；该源能稳定接受可识别的 User-Agent，也能将 Reddit 单 IP
+    速率限制下的请求量减半。
     """
     return _fetch_subreddit_rss(ticker, sub, limit, timeout)
 
@@ -195,15 +190,15 @@ def fetch_reddit_posts(
     timeout: float = 10.0,
     inter_request_delay: float = 1.0,
 ) -> str:
-    """Fetch recent Reddit posts mentioning ``ticker`` across finance
-    subreddits and return them as a formatted plaintext block.
+    """获取金融类 subreddit 中提及 ``ticker`` 的最新 Reddit 帖子，
+    并将其返回为格式化纯文本块。
 
-    ``inter_request_delay`` paces the (now RSS-only) per-subreddit requests to
-    stay under Reddit's public per-IP rate limit; combined with the RSS-first
-    path it makes 429s rare even when several analyses run back-to-back.
+    ``inter_request_delay`` 用于控制（目前仅 RSS）各 subreddit 请求的间隔，
+    使其低于 Reddit 公开的单 IP 速率限制；结合 RSS 优先路径，即使连续运行
+    多次分析，也能降低触发 429 的概率。
     """
-    # Crypto reaches us as a Yahoo pair (BTC-USD); search Reddit for the base
-    # ("BTC") so the query actually matches discussion instead of near-nothing.
+    # 加密货币以 Yahoo 交易对（BTC-USD）的形式传入；搜索基础代码
+    #（“BTC”）才能真正匹配讨论内容，而不是几乎搜不到结果。
     ticker = crypto_base(ticker) or ticker
     blocks = []
     total_posts = 0
@@ -213,12 +208,12 @@ def fetch_reddit_posts(
         posts = _fetch_subreddit(ticker, sub, limit_per_sub, timeout)
         total_posts += len(posts)
         if not posts:
-            blocks.append(f"r/{sub}: <no posts found mentioning {ticker.upper()} in the past 7 days>")
+            blocks.append(f"r/{sub}：<过去 7 天未找到提及 {ticker.upper()} 的帖子>")
             continue
 
         via_rss = any(p.get("source") == "rss" for p in posts)
-        header = f"r/{sub} — {len(posts)} recent posts mentioning {ticker.upper()}"
-        header += " (via RSS feed; scores/comments unavailable):" if via_rss else ":"
+        header = f"r/{sub} —— 最近有 {len(posts)} 条提及 {ticker.upper()} 的帖子"
+        header += "（来自 RSS 源；得分和评论数不可用）：" if via_rss else "："
         lines = [header]
         for p in posts:
             title = (p.get("title") or "").replace("\n", " ").strip()
@@ -228,8 +223,7 @@ def fetch_reddit_posts(
             created_str = (
                 time.strftime("%Y-%m-%d", time.gmtime(created)) if created else "?"
             )
-            # Score / comment counts are absent on the RSS fallback path —
-            # show them only when present rather than printing fake zeros.
+            # RSS 备用路径没有得分和评论数；只有存在时才显示，避免打印虚假零值。
             meta = created_str
             if score is not None and comments is not None:
                 meta += f" · {score:>4}↑ · {comments:>3}c"
@@ -238,13 +232,13 @@ def fetch_reddit_posts(
                 selftext = selftext[:240] + "…"
             lines.append(
                 f"  [{meta}] {title}"
-                + (f"\n    body excerpt: {selftext}" if selftext else "")
+                + (f"\n    正文摘录：{selftext}" if selftext else "")
             )
         blocks.append("\n".join(lines))
 
     if total_posts == 0:
         return (
-            f"<no Reddit posts found mentioning {ticker.upper()} across "
-            f"{', '.join(f'r/{s}' for s in subreddits)} in the past 7 days>"
+            f"<过去 7 天在 {', '.join(f'r/{s}' for s in subreddits)} 中未找到"
+            f"提及 {ticker.upper()} 的 Reddit 帖子>"
         )
     return "\n\n".join(blocks)

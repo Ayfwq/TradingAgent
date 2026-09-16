@@ -1,9 +1,8 @@
-"""Backwards-compatibility shim for the renamed module.
+"""重命名模块的向后兼容适配层。
 
-The agent is now ``sentiment_analyst`` and aggregates Yahoo Finance news,
-StockTwits cashtag streams, and Reddit posts into a single sentiment
-report. Import from ``tradingagents.agents.analysts.sentiment_analyst``
-going forward; this module will be removed in a future release.
+Agent 现在位于 sentiment_analyst，会将 Yahoo Finance 新闻、StockTwits cashtag 信息流
+和 Reddit 帖子汇总为一份情绪报告。后续请从对应的 sentiment_analyst 模块导入；
+本模块将在未来版本删除。
 
 See: https://github.com/TauricResearch/TradingAgents/issues/557
 """

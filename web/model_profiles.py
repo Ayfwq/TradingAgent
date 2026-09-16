@@ -1,4 +1,4 @@
-"""Encrypted, server-side model endpoint profiles for the web application."""
+"""Web 应用使用的服务端加密模型端点配置。"""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def _normalise_base_url(value: str) -> str:
 
 
 class ModelProfileService:
-    """Stores endpoint credentials encrypted at rest and performs safe API checks."""
+    """以静态加密方式保存端点凭证，并执行安全的 API 检查。"""
 
     def __init__(self, root: Path | None = None) -> None:
         self.root = root or _settings_dir()
@@ -95,7 +95,7 @@ class ModelProfileService:
     def list(self) -> list[dict[str, Any]]:
         with self._lock:
             profiles = [self._public(profile) for profile in self._read()]
-        logger.debug("Listed %d model profile(s)", len(profiles))
+        logger.debug("已列出 %d 个模型配置", len(profiles))
         return profiles
 
     def _find(self, profile_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -159,11 +159,11 @@ class ModelProfileService:
             return self._public(profile)
 
     def delete(self, profile_id: str) -> None:
-        logger.debug("Delete model profile %s", profile_id)
+        logger.debug("删除模型配置 %s", profile_id)
         with self._lock:
             profiles, _ = self._find(profile_id)
             self._write([item for item in profiles if item.get("id") != profile_id])
-        logger.info("Deleted model profile %s", profile_id)
+        logger.info("已删除模型配置 %s", profile_id)
 
     @staticmethod
     def _headers(api_key: str | None) -> dict[str, str]:
@@ -173,7 +173,7 @@ class ModelProfileService:
         return headers
 
     def discover(self, profile_id: str) -> dict[str, Any]:
-        logger.debug("Discover models for profile %s", profile_id)
+        logger.debug("发现配置 %s 的模型", profile_id)
         with self._lock:
             profiles, profile = self._find(profile_id)
             api_key = self._api_key(profile)
@@ -187,11 +187,11 @@ class ModelProfileService:
             profile["updated_at"] = _now()
             profiles[profiles.index(profile)] = profile
             self._write(profiles)
-            logger.info("Discovered %d model(s) for profile %s", len(models), profile_id)
+            logger.info("已为配置 %s 发现 %d 个模型", profile_id, len(models))
             return {"profile": self._public(profile), "models": models}
 
     def test(self, profile_id: str) -> dict[str, Any]:
-        logger.debug("Test model profile %s", profile_id)
+        logger.debug("测试模型配置 %s", profile_id)
         with self._lock:
             _, profile = self._find(profile_id)
             api_key = self._api_key(profile)
@@ -207,11 +207,11 @@ class ModelProfileService:
         content = ""
         if choices and isinstance(choices[0], dict):
             content = str((choices[0].get("message") or {}).get("content") or "")
-        logger.info("Model test succeeded for profile %s (model=%s)", profile_id, profile["quick_model"])
+        logger.info("模型配置测试成功：配置=%s（模型=%s）", profile_id, profile["quick_model"])
         return {"ok": True, "message": "模型连接正常", "model": profile["quick_model"], "reply": content[:160]}
 
     def graph_overrides(self, profile_id: str) -> dict[str, str]:
-        logger.debug("Build graph overrides for profile %s", profile_id)
+        logger.debug("为配置 %s 构建图覆盖项", profile_id)
         with self._lock:
             _, profile = self._find(profile_id)
             api_key = self._api_key(profile)

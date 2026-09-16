@@ -7,8 +7,8 @@
   "use strict";
 
   // 股票模块的 section：切换时整体隐藏/恢复（process/report 恢复为默认隐藏）
-  var STOCK_SECTIONS = ["module-hub", "hero", "history-center", "process", "report"];
-  var DEFAULT_VISIBLE = { "module-hub": true, hero: true, "history-center": true, process: false, report: false };
+  var STOCK_SECTIONS = ["hero", "process", "report"];
+  var DEFAULT_VISIBLE = { hero: true, process: false, report: false };
 
   var loaded = false;
   var loading = false;
@@ -17,11 +17,14 @@
 
   function setMode(mode, push) {
     var root = $("news-module-root");
+    var stockTrigger = $("stock-tab-trigger");
     var trigger = $("news-tab-trigger");
     if (mode === "news") {
       document.body.classList.add("news-mode");
       STOCK_SECTIONS.forEach(function (id) { $(id).classList.add("hidden"); });
       root.classList.remove("hidden");
+      stockTrigger.classList.remove("active");
+      stockTrigger.setAttribute("aria-pressed", "false");
       trigger.classList.add("active");
       trigger.setAttribute("aria-pressed", "true");
       ensureLoaded();
@@ -31,6 +34,8 @@
         $(id).classList.toggle("hidden", !DEFAULT_VISIBLE[id]);
       });
       root.classList.add("hidden");
+      stockTrigger.classList.add("active");
+      stockTrigger.setAttribute("aria-pressed", "true");
       trigger.classList.remove("active");
       trigger.setAttribute("aria-pressed", "false");
     }
@@ -84,7 +89,11 @@
   }
 
   function init() {
+    var stockTrigger = $("stock-tab-trigger");
     var trigger = $("news-tab-trigger");
+    stockTrigger.addEventListener("click", function () {
+      setMode("stock", true);
+    });
     trigger.addEventListener("click", function () {
       var inNews = document.body.classList.contains("news-mode");
       setMode(inNews ? "stock" : "news", true);

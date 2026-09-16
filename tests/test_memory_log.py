@@ -717,7 +717,7 @@ class TestPortfolioManagerInjection:
 
     def test_pm_returns_rendered_markdown_with_rating(self):
         """The structured PortfolioDecision is rendered to markdown that
-        downstream consumers (memory log, signal processor, CLI display)
+        downstream consumers (memory log, signal processor, Web display)
         can parse without any extra LLM call."""
         captured = {}
         decision = PortfolioDecision(

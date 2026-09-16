@@ -14,21 +14,21 @@ _PASSTHROUGH_KWARGS = (
     "callbacks", "http_client", "http_async_client", "effort",
 )
 
-# Anthropic's extended-thinking ``effort`` parameter is accepted by Opus 4.5+,
-# Sonnet 4.6+, and the Claude 5 family (Sonnet 5, Fable 5). Sonnet 4.5 and any
-# Haiku version 400 with ``"This model does not support the effort parameter"``
-# (#831). Versions may be dotted (``opus-4-8``) or single-number (``sonnet-5``,
-# ``fable-5``); the per-family minimum below is forward-compatible.
+# Anthropic 的扩展思考 ``effort`` 参数适用于 Opus 4.5+、Sonnet 4.6+ 和 Claude 5
+# 系列（Sonnet 5、Fable 5）。Sonnet 4.5 及任何 Haiku 版本会返回
+# ``"This model does not support the effort parameter"``（#831）。版本可能带小数
+#（``opus-4-8``）或只有一个数字（``sonnet-5``、``fable-5``）；下面的系列最低版本
+# 判断具有向前兼容性。
 _EFFORT_EXACT = {
-    "claude-mythos-preview",  # non-standard preview name; effort-capable
-    "claude-mythos-5",        # Fable 5 twin (Project Glasswing); effort-capable
+    "claude-mythos-preview",  # 非标准的预览名称；支持 effort
+    "claude-mythos-5",        # Fable 5 的同源模型（Project Glasswing）；支持 effort
 }
 _EFFORT_MODEL = re.compile(r"^claude-(opus|sonnet|fable)-(\d+)(?:-(\d+))?$")
 _EFFORT_MIN_VERSION = {"opus": (4, 5), "sonnet": (4, 6), "fable": (5, 0)}
 
 
 def _supports_effort(model: str) -> bool:
-    """Whether Anthropic accepts the ``effort`` parameter for this model."""
+    """判断 Anthropic 是否接受该模型的 ``effort`` 参数。"""
     model_lc = model.lower()
     if model_lc in _EFFORT_EXACT:
         return True
@@ -42,11 +42,10 @@ def _supports_effort(model: str) -> bool:
 
 
 class NormalizedChatAnthropic(ChatAnthropic):
-    """ChatAnthropic with normalized content output.
+    """输出内容已规范化的 ChatAnthropic。
 
-    Claude models with extended thinking or tool use return content as a
-    list of typed blocks. This normalizes to string for consistent
-    downstream handling.
+    Claude 扩展思考或工具调用模型会将 content 返回为类型化数据块列表，这里将其
+    规范化为字符串，便于下游统一处理。
     """
 
     def invoke(self, input, config=None, **kwargs):
@@ -54,14 +53,14 @@ class NormalizedChatAnthropic(ChatAnthropic):
 
 
 class AnthropicClient(BaseLLMClient):
-    """Client for Anthropic Claude models."""
+    """Anthropic Claude 模型客户端。"""
 
     def __init__(self, model: str, base_url: str | None = None, **kwargs):
         super().__init__(model, base_url, **kwargs)
 
     def get_llm(self) -> Any:
-        """Return configured ChatAnthropic instance."""
-        logger.debug("Building Anthropic LLM: provider=anthropic model=%s base_url=%s", self.model, self.base_url)
+        """返回已配置的 ChatAnthropic 实例。"""
+        logger.debug("正在构建 Anthropic LLM：provider=anthropic，model=%s，base_url=%s", self.model, self.base_url)
         self.warn_if_unknown_model()
         llm_kwargs = {"model": self.model}
 
@@ -76,11 +75,11 @@ class AnthropicClient(BaseLLMClient):
             llm_kwargs[key] = self.kwargs[key]
 
         llm = NormalizedChatAnthropic(**llm_kwargs)
-        logger.debug("Constructed NormalizedChatAnthropic for model=%s", self.model)
+        logger.debug("已为 model=%s 构建标准化 Anthropic 客户端", self.model)
         return llm
 
     def validate_model(self) -> bool:
-        """Validate model for Anthropic."""
+        """校验 Anthropic 模型。"""
         result = validate_model("anthropic", self.model)
-        logger.debug("Model '%s' validation for provider 'anthropic': %s", self.model, result)
+        logger.debug("provider='anthropic' 的模型 '%s' 校验结果：%s", self.model, result)
         return result

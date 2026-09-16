@@ -1,12 +1,10 @@
-"""Shared 5-tier rating vocabulary and a deterministic heuristic parser.
+"""共用的五级评级词汇与确定性启发式解析器。
 
-The same five-tier scale (Buy, Overweight, Hold, Underweight, Sell) is used by:
-- The Research Manager (investment plan recommendation)
-- The Portfolio Manager (final position decision)
-- The signal processor (rating extracted for downstream consumers)
-- The memory log (rating tag stored alongside each decision entry)
+研究经理（投资计划建议）、投资组合经理（最终仓位决策）、信号处理器
+（为下游消费者提取评级）和记忆日志（在决策条目旁保存评级标签）统一使用
+Buy、Overweight、Hold、Underweight、Sell 五级尺度。
 
-Centralising it here avoids drift between those call sites.
+将其集中维护可以避免这些调用点之间出现偏差。
 """
 
 from __future__ import annotations
@@ -16,33 +14,33 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# Canonical, ordered 5-tier scale (most bullish to most bearish).
+# 标准的五级有序尺度（从最看多到最看空）。
 RATINGS_5_TIER: tuple[str, ...] = (
     "Buy", "Overweight", "Hold", "Underweight", "Sell",
 )
 
 _RATING_SET = {r.lower() for r in RATINGS_5_TIER}
 
-# Matches "Rating: X" / "rating - X" / "Rating: **X**" — tolerates markdown
-# bold wrappers and either a colon or hyphen separator.
+# 匹配“Rating: X”/“rating - X”/“Rating: **X**”，兼容 Markdown 加粗标记
+# 以及冒号或连字符分隔符。
 _RATING_LABEL_RE = re.compile(r"rating.*?[:\-][\s*]*(\w+)", re.IGNORECASE)
 
 
 def parse_rating(text: str, default: str = "Hold") -> str:
-    """Heuristically extract a 5-tier rating from prose text.
+    """从自然语言文本中启发式提取五级评级。
 
-    Two-pass strategy:
-    1. Look for an explicit "Rating: X" label (tolerant of markdown bold).
-    2. Fall back to the first 5-tier rating word found anywhere in the text.
+    分两轮处理：
+    1. 查找明确的“Rating: X”标签（兼容 Markdown 加粗）。
+    2. 如果没有标签，则使用文本中出现的第一个五级评级词。
 
-    Returns a Title-cased rating string, or ``default`` if no rating word appears.
+    返回首字母大写的评级字符串；如果没有评级词，则返回 ``default``。
     """
-    logger.debug("parse_rating called: text_len=%d, default=%s", len(text), default)
+    logger.debug("已调用 parse_rating：文本长度=%d，默认值=%s", len(text), default)
     for line in text.splitlines():
         m = _RATING_LABEL_RE.search(line)
         if m and m.group(1).lower() in _RATING_SET:
             rating = m.group(1).capitalize()
-            logger.debug("parse_rating resolved label rating=%s", rating)
+            logger.debug("parse_rating 通过标签解析出评级=%s", rating)
             return rating
 
     for line in text.splitlines():
@@ -50,8 +48,8 @@ def parse_rating(text: str, default: str = "Hold") -> str:
             clean = word.strip("*:.,")
             if clean in _RATING_SET:
                 rating = clean.capitalize()
-                logger.debug("parse_rating resolved keyword rating=%s", rating)
+                logger.debug("parse_rating 通过关键词解析出评级=%s", rating)
                 return rating
 
-    logger.debug("parse_rating fell back to default=%s", default)
+    logger.debug("parse_rating 回退到默认值=%s", default)
     return default

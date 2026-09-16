@@ -98,7 +98,6 @@ flowchart TD
 | 路径                                  | 核心职责                          | 学习重点                                            |
 | ------------------------------------- | --------------------------------- | --------------------------------------------------- |
 | `main.py`                           | 最小程序化调用示例                | `TradingAgentsGraph().propagate()`                |
-| `cli/`                              | Typer + Rich 交互式终端           | 流式消费图状态、Agent/工具统计、报告保存            |
 | `web/`                              | FastAPI + 静态前端                | 后台任务、分析状态轮询、模型配置、报告历史          |
 | `tradingagents/default_config.py`   | 默认配置和环境变量覆盖            | 配置优先级、类型转换、运行边界                      |
 | `tradingagents/graph/`              | LangGraph 编排核心                | StateGraph、节点、边、条件路由、Barrier、checkpoint |
@@ -186,15 +185,14 @@ report = graph.save_reports(final_state, "600519.SS")
 | Portfolio Manager | deep         | 最终综合和高影响决策          |
 | Reflector         | quick        | 只生成 2～4 句紧凑复盘        |
 
-### 4.3 三个入口并不完全等价
+### 4.3 Web 与程序化调用
 
-| 入口               | 调用方式                                      | 长期记忆                           | Checkpoint                         | 报告                     |
-| ------------------ | --------------------------------------------- | ---------------------------------- | ---------------------------------- | ------------------------ |
-| `main.py` / 脚本 | `propagate()`                               | 完整                               | 按配置生效                         | 可调用`save_reports()` |
-| Web                | 后台线程中调用`propagate()`                 | 完整                               | Web 强制开启                       | 自动保存                 |
-| CLI                | 直接构造 state 后调用`graph.graph.stream()` | 当前未走`propagate()` 的记忆读写 | 当前未重新编译带 checkpointer 的图 | 用户确认后保存           |
+| 入口          | 调用方式                      | 长期记忆 | Checkpoint   | 报告                    |
+| ------------- | ----------------------------- | -------- | ------------ | ----------------------- |
+| `main.py` / 脚本 | `propagate()`              | 完整     | 按配置生效   | 可调用 `save_reports()` |
+| Web           | 后台线程中调用 `propagate()` | 完整     | Web 强制开启 | 自动保存                |
 
-这个差异非常重要：理解代码时不能假设所有入口都自动享有 `propagate()` 的前后处理。
+Web 和程序化调用都复用 `propagate()` 的完整前后处理；新闻页面的数据更新由独立的后台 Worker 负责。
 
 ## 5. LangGraph 状态模型
 
@@ -230,7 +228,7 @@ report = graph.save_reports(final_state, "600519.SS")
 
 - 兼容旧 checkpoint 和直接调用 Agent 的测试；
 - Trader 之后的顺序阶段；
-- CLI/Debug 展示。Sentiment Analyst 和 Trader 会镜像写入共享通道。
+- Debug 展示。Sentiment Analyst 和 Trader 会镜像写入共享通道。
 
 ### 5.3 辩论状态不是消息列表
 
@@ -827,7 +825,7 @@ LangGraph 读取 checkpoint，继续未完成任务
 成功后本次 thread 的 checkpoint 被删除
 ```
 
-如果想强制从头开始，可调用 `clear_checkpoint()`，CLI 还提供 `--clear-checkpoints` 清理全部 ticker DB。清理是不可恢复操作，使用前应确认目标。
+如果想强制从头开始，可调用 `clear_checkpoint()` 或 `clear_all_checkpoints()` 清理全部 ticker DB。清理是不可恢复操作，使用前应确认目标。
 
 ## 14. 输出、日志和可观测性
 
@@ -866,16 +864,10 @@ LangGraph 读取 checkpoint，继续未完成任务
 └─ metadata.json
 ```
 
-### 14.3 CLI 可观测性
+### 14.3 Web 可观测性
 
-CLI 使用 callback 统计 LLM 和工具调用，并消费流式状态更新，用 Rich Live 显示：
-
-- 每个 Agent 状态；
-- 当前工具调用；
-- 各报告片段；
-- token / 调用统计；
-- 分析师 wall time；
-- `message_tool.log`。
+Web 服务通过 Prometheus 指标记录分析任务、LLM/工具调用和新闻 Worker 状态，
+并通过任务 API 向前端提供分析进度和最终报告。
 
 ### 14.4 Web 任务模型
 
@@ -897,9 +889,9 @@ POST /api/analyses
 
 这一章记录“代码实际行为”与“容易从注释或架构直觉推断出的行为”之间的差异。
 
-### 15.1 ToolNode 注册不等于 Agent 可调用
+### 15.1 ToolNode 注册与 Agent 可调用范围
 
-Market 的四个 A 股增强工具、News 的 insider transactions、Fundamentals 的 earnings forecast 目前只注册在 ToolNode，没有出现在 Agent 的 `bind_tools()` 列表。因此正常 LLM 不会主动生成这些调用。
+工具必须同时出现在 Agent 的 `bind_tools()` 与对应 `ToolNode` 中。Market 的四个 A 股增强工具和 Fundamentals 的 earnings forecast 会在标的被识别为沪深北 A 股时动态绑定；News 的 insider transactions 会为股票标的绑定。非适用资产不会收到这些工具 schema，避免模型误调用。
 
 ### 15.2 Sentiment 是预取节点，不是工具循环 Agent
 
@@ -909,16 +901,10 @@ Market 的四个 A 股增强工具、News 的 insider transactions、Fundamental
 
 路由达到上限时直接进入 Clear，而不是再执行一次“禁止工具、只写报告”的 LLM 调用。Barrier 会因为 done 标记放行，下游必须能容忍某份报告为空。
 
-### 15.4 CLI 当前绕过完整的 `propagate()` 生命周期
+### 15.4 Web 与程序化调用共享完整生命周期
 
-CLI 直接 `graph.graph.stream()`：
-
-- 没有 `_resolve_pending_entries()`；
-- 创建初始 State 时没有读取 `past_context`；
-- 不会 `store_decision()`；
-- 即使配置里打开 checkpoint，也没有像 `propagate()` 那样带 SqliteSaver 重新 compile。
-
-因此 Web/脚本和 CLI 的恢复、长期记忆行为当前不一致。若要统一，应让 CLI 复用一个可流式的 `propagate_stream()` 门面，或把 `propagate()` 的前后处理拆成共享 context manager。
+Web 和脚本入口都通过 `propagate()` 执行完整的记忆读取、检查点恢复、图运行、
+状态保存、决策记录和最终评级解析流程。新闻模块则由 `web.news_worker` 负责后台采集。
 
 ### 15.5 长期记忆只影响最终 Portfolio Manager
 
@@ -930,7 +916,7 @@ CLI 直接 `graph.graph.stream()`：
 
 ### 15.7 Stream mode 是 `values`
 
-Propagator 配置 `stream_mode="values"`，每次产出的是更新后的 State 快照。Debug/CLI 仍通过 `dict.update()` 合并 trace，这对 full-state snapshot 基本是冗余但兼容；若未来改成 `updates`，消费逻辑含义会变化，需要同时调整并发字段合并方式。
+Propagator 配置 `stream_mode="values"`，每次产出的是更新后的 State 快照。Debug 流仍通过 `dict.update()` 合并 trace，这对 full-state snapshot 基本是冗余但兼容；若未来改成 `updates`，消费逻辑含义会变化，需要同时调整并发字段合并方式。
 
 ### 15.8 配置是进程级共享的
 

@@ -1,5 +1,4 @@
-# Aggregates the per-category Alpha Vantage implementations into one module the
-# vendor router imports from; the imports below are the public surface.
+# 汇总各类别的 Alpha Vantage 实现，供供应商路由器导入；以下导入构成公开接口。
 import logging
 
 from .alpha_vantage_fundamentals import (

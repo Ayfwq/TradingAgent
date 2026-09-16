@@ -164,13 +164,13 @@ class SourceConfig:
     source_id: str
     name: str
     url: str
-    kind: str = "feed"  # feed / cls_finance / eastmoney_finance / hacker_news
+    kind: str = "feed"  # feed / cls_finance / eastmoney_finance / hacker_news：来源类型
     language: str = "en"
     vertical: bool = True  # AI 垂直源（免关键词过滤）
     weight: float = 0.8  # 热度计算中的来源权重 0~1
-    source_type: str = "specialist"  # primary / major_media / specialist / aggregator
+    source_type: str = "specialist"  # primary / major_media / specialist / aggregator：来源层级
     authority_score: int = 70  # 编辑信誉分，用于精选与跨源去重 0~100
-    region: str = "global"  # cn / global
+    region: str = "global"  # cn / global：来源区域
     a_share_relevance: int = 30  # 对 A 股政策、产业链与上市公司的关联度 0~100
     enabled: bool = True
     interval_minutes: int | None = None  # None 则使用全局间隔

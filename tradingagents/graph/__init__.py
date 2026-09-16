@@ -1,4 +1,4 @@
-# TradingAgents/graph/__init__.py
+# TradingAgents/graph/__init__.py：图模块初始化文件
 
 from .conditional_logic import ConditionalLogic
 from .propagation import Propagator

@@ -1,6 +1,5 @@
-"""Staggered-completion test: if one parallel branch finishes LATER (multiple
-waves), does LangGraph 1.2 fan-in wait for it, or does the join fire early
-and then re-fire — corrupting the downstream loop?"""
+"""交错完成测试：如果一个并行分支较晚完成（跨越多个波次），LangGraph 1.2
+的扇入会等待它，还是连接节点提前触发后再次触发，从而破坏下游循环？"""
 
 import sys
 import time
@@ -48,9 +47,9 @@ def route_y(state):
 
 
 def build(stagger_worker=1):
-    """w0..w2 -> c0..c2 -> X  (same depth layer)
-    w3 -> w3b -> c3 -> X      (c3 one layer DEEPER)
-    X<->Y loop. Does X fire before c3 arrives (cross-layer join miss)?"""
+    """w0..w2 -> c0..c2 -> X（同一深度层）
+    w3 -> w3b -> c3 -> X（c3 深一层）
+    X<->Y 循环。X 是否会在 c3 到达前触发（跨层连接遗漏）？"""
     g = StateGraph(S)
     for i in range(3):
         g.add_node(f"w{i}", make_worker(f"k{i}"))
@@ -58,7 +57,7 @@ def build(stagger_worker=1):
         g.add_edge(START, f"w{i}")
         g.add_edge(f"w{i}", f"c{i}")
         g.add_edge(f"c{i}", "X")
-    # deeper branch: w3 -> w3b -> c3
+    # 更深的分支：w3 -> w3b -> c3
     g.add_node("w3", make_worker("k3"))
     g.add_node("w3b", make_worker("k3"))
     g.add_node("c3", make_worker("k3"))
@@ -81,8 +80,8 @@ if __name__ == "__main__":
                                    "history": "", "count": 0},
                                   stream_mode="updates"):
             print(chunk)
-        print("OK")
+        print("成功")
         sys.exit(0)
     except Exception as exc:  # noqa: BLE001
-        print(f"FAILED: {type(exc).__name__}: {str(exc)[:200]}")
+        print(f"失败：{type(exc).__name__}：{str(exc)[:200]}")
         sys.exit(1)

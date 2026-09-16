@@ -25,31 +25,31 @@ def create_neutral_debator(llm):
 
         trader_decision = state["trader_investment_plan"]
 
-        logger.debug("Neutral Analyst invoked: ticker=%s debate_round=%d", state.get("company_of_interest"), state.get("risk_debate_state", {}).get("count", 0))
+        logger.debug("中性风险分析师调用：代码=%s 辩论轮次=%d", state.get("company_of_interest"), state.get("risk_debate_state", {}).get("count", 0))
 
-        prompt = f"""As the Neutral Risk Analyst, your role is to provide a balanced perspective, weighing both the potential benefits and risks of the trader's decision or plan. You prioritize a well-rounded approach, evaluating the upsides and downsides while factoring in broader market trends, potential economic shifts, and diversification strategies.Here is the trader's decision:
+        prompt = f"""作为中性风险分析师，你的职责是提供平衡视角，权衡交易员决定或计划的潜在收益与风险。你应采用全面方法，在评估利弊的同时考虑更广泛的市场趋势、潜在经济变化和分散化策略。以下是交易员的决定：
 
 {trader_decision}
 
-Your task is to challenge both the Aggressive and Conservative Analysts, pointing out where each perspective may be overly optimistic or overly cautious. Use insights from the following data sources to support a moderate, sustainable strategy to adjust the trader's decision:
+你的任务是挑战激进和保守分析师，指出各自视角可能过度乐观或过度谨慎的地方。请利用以下数据源的洞察，支持对交易员决定进行适度、可持续的调整：
 
 {instrument_context}
-Market Research Report: {market_research_report}
-Social Media Sentiment Report: {sentiment_report}
-Latest World Affairs Report: {news_report}
-Company Fundamentals Report: {fundamentals_report}
-Here is the current conversation history: {history} Here is the last response from the aggressive analyst: {current_aggressive_response} Here is the last response from the conservative analyst: {current_conservative_response}. If there are no responses from the other viewpoints yet, present your own argument based on the available data.
+市场研究报告：{market_research_report}
+社交媒体情绪报告：{sentiment_report}
+最新全球新闻报告：{news_report}
+公司基本面报告：{fundamentals_report}
+当前对话历史：{history}。激进分析师上一轮回复：{current_aggressive_response}。保守分析师上一轮回复：{current_conservative_response}。如果其他视角尚未回复，请基于现有数据提出自己的论点。
 
-Engage actively by analyzing both sides critically, addressing weaknesses in the aggressive and conservative arguments to advocate for a more balanced approach. Challenge each of their points to illustrate why a moderate risk strategy might offer the best of both worlds, providing growth potential while safeguarding against extreme volatility. Focus on debating rather than simply presenting data, aiming to show that a balanced view can lead to the most reliable outcomes. Output conversationally as if you are speaking without any special formatting.""" + get_language_instruction()
+请积极批判性分析双方，回应激进和保守论点中的弱点，倡导更加平衡的方法。挑战双方每一个观点，说明适度风险策略为何可能兼顾两者优势，在保留增长潜力的同时防范极端波动。重点是辩论而不是简单展示数据，说明平衡视角为何能带来最可靠的结果。请以对话方式输出，不要使用特殊格式。""" + get_language_instruction()
 
         try:
             response = llm.invoke(prompt)
-            logger.debug("Neutral Analyst LLM call completed (%d chars)", len(response.content or ""))
+            logger.debug("中性风险分析师 LLM 调用完成（%d 字符）", len(response.content or ""))
         except Exception as exc:
-            logger.exception("Neutral Analyst LLM call failed: %s", exc)
+            logger.exception("中性风险分析师 LLM 调用失败：%s", exc)
             raise
 
-        argument = f"Neutral Analyst: {response.content}"
+        argument = f"中性风险分析师：{response.content}"
 
         new_risk_debate_state = {
             "history": history + "\n" + argument,
@@ -65,7 +65,7 @@ Engage actively by analyzing both sides critically, addressing weaknesses in the
             "count": risk_debate_state["count"] + 1,
         }
 
-        logger.debug("Neutral Analyst finished: argument=%d chars", len(argument or ""))
+        logger.debug("中性风险分析师完成：论点长度=%d 字符", len(argument or ""))
 
         return {"risk_debate_state": new_risk_debate_state}
 

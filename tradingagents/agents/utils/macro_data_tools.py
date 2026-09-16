@@ -12,41 +12,39 @@ logger = logging.getLogger(__name__)
 def get_macro_indicators(
     indicator: Annotated[
         str,
-        "Macro indicator: a friendly alias such as 'cpi', 'core_pce', "
+        "宏观指标：易读别名，例如 'cpi'、'core_pce'、"
         "'unemployment', 'fed_funds_rate', '10y_treasury', 'yield_curve', "
         "'real_gdp', 'vix', or a raw FRED series ID such as 'CPIAUCSL'.",
     ],
-    curr_date: Annotated[str, "Current date in yyyy-mm-dd format; the end of the window"],
+    curr_date: Annotated[str, "当前日期，格式为 yyyy-mm-dd；作为窗口结束日期"],
     look_back_days: Annotated[
-        int | None, "Trailing window length in days; omit for a 1-year window"
+        int | None, "向前回看的窗口天数；省略则使用一年窗口"
     ] = None,
 ) -> str:
     """
-    Retrieve a macroeconomic indicator time series from FRED (Federal Reserve
-    Economic Data): policy rates, Treasury yields, inflation, labor, and growth.
-    Returns the series title, units, frequency, the latest value, the change
-    over the window, and a recent observation table. Uses the configured
-    macro_data vendor.
+    从 FRED（Federal Reserve Economic Data）获取宏观经济指标时间序列，包括政策利率、
+    国债收益率、通胀、就业和经济增长。返回序列标题、单位、频率、最新值、窗口内变化
+    以及近期观测表。使用配置的 macro_data 数据供应商。
 
-    Args:
-        indicator (str): Friendly alias or raw FRED series ID
-        curr_date (str): Current date in yyyy-mm-dd format
-        look_back_days (int): Trailing window length; omit for a 1-year window
+    参数：
+        indicator (str)：易读别名或原始 FRED 序列 ID
+        curr_date (str)：当前日期，格式为 yyyy-mm-dd
+        look_back_days (int)：向前回看的窗口天数；省略则使用一年窗口
 
-    Returns:
-        str: A formatted markdown report of the macro series
+    返回：
+        str：宏观序列的格式化 Markdown 报告。
     """
     logger.debug(
-        "get_macro_indicators called: indicator=%s, curr_date=%s, look_back_days=%s",
+        "调用 get_macro_indicators：指标=%s，当前日期=%s，回看天数=%s",
         indicator, curr_date, look_back_days,
     )
     try:
         result = route_to_vendor("get_macro_indicators", indicator, curr_date, look_back_days)
-        logger.debug("get_macro_indicators returned %d chars for %s", len(result), indicator)
+        logger.debug("get_macro_indicators 返回 %d 个字符：%s", len(result), indicator)
         return result
     except Exception:
         logger.exception(
-            "get_macro_indicators failed: indicator=%s, curr_date=%s, look_back_days=%s",
+            "get_macro_indicators 失败：指标=%s，当前日期=%s，回看天数=%s",
             indicator, curr_date, look_back_days,
         )
         raise

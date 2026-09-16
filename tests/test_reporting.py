@@ -1,5 +1,4 @@
-"""Report parity: the shared writer produces the report tree for the CLI and the
-programmatic API alike (#1037)."""
+"""报告一致性：共享写入器为 Web 和程序化 API 生成相同的报告树（#1037）。"""
 
 from types import SimpleNamespace
 
