@@ -522,7 +522,7 @@ class NewsSettings:
     max_response_bytes: int = 2 * 1024 * 1024
     max_concurrency: int = 4
     max_entries_per_fetch: int = 200
-    retention_days: int = 90
+    retention_days: int = 180
     ai_summary_enabled: bool = True
     ai_max_items_per_run: int = 30
     ai_request_timeout_seconds: float = 60.0
@@ -547,7 +547,7 @@ class NewsSettings:
             ),
             max_concurrency=_env_int("NEWS_MAX_CONCURRENCY", 4, 1, 8),
             max_entries_per_fetch=_env_int("NEWS_MAX_ENTRIES_PER_FETCH", 200, 10, 1000),
-            retention_days=_env_int("NEWS_RETENTION_DAYS", 90, 7, 365),
+            retention_days=_env_int("NEWS_RETENTION_DAYS", 180, 7, 365),
             ai_summary_enabled=_env_bool("NEWS_AI_SUMMARY_ENABLED", True),
             ai_max_items_per_run=_env_int("NEWS_AI_MAX_ITEMS_PER_RUN", 30, 0, 200),
             max_items_per_source_per_day=_env_int("NEWS_MAX_ITEMS_PER_SOURCE_PER_DAY", 8, 1, 50),

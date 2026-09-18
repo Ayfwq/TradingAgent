@@ -376,7 +376,7 @@ NEWS_FETCH_INTERVAL_MINUTES=15
 NEWS_REQUEST_TIMEOUT_SECONDS=10
 NEWS_MAX_RESPONSE_BYTES=2097152
 NEWS_MAX_CONCURRENCY=4
-NEWS_RETENTION_DAYS=90
+NEWS_RETENTION_DAYS=180
 NEWS_AI_SUMMARY_ENABLED=true
 NEWS_AI_MAX_ITEMS_PER_RUN=30
 NEWS_DATABASE_URL=postgresql://<user>:<password>@postgres:5432/<database>
@@ -501,7 +501,7 @@ PostgreSQL 支持 Web 与 Worker 的并发读写，并为后续扩展多个 Web 
 - 抓取间隔：默认 15 分钟；
 - 页面样式：默认沿用现有网站；
 - AI 模型：默认复用现有模型配置，未配置时自动降级；
-- 数据保留：默认 90 天；
+- 数据保留：默认 180 天；
 - ECS 域名、HTTPS 和防火墙信息：部署阶段再提供；
 - 是否增加股票代码映射：首版先保留标签字段，后续再增强。
 

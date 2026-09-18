@@ -100,7 +100,7 @@ docker compose down
 - 容器关闭了 Uvicorn access log，因此 Docker 日志不会持续输出 `/health`、`/metrics`、静态文件等探活和轮询请求；业务操作仍通过应用日志记录。
 - Web 和 Worker 的应用日志写入 `/data/runtime-logs/web` 与 `/data/runtime-logs/news-worker`，按天轮转并只保留最近 3 天；旧文件会在进程启动和写入日志时清理。
 - Docker 的 `json-file` 日志仍设置了单文件 10 MB、最多 3 个文件，作为容量上限和临时排障入口。它是按大小而不是按时间轮转，查看实时日志使用 `docker compose logs`。
-- 运行日志与研报分离：`/data/logs` 是研报和状态产物目录，不会因为运行日志轮转而自动删除。资讯数据库仍按 `NEWS_RETENTION_DAYS`（默认 90 天）清理。
+- 运行日志与研报分离：`/data/logs` 是研报和状态产物目录，不会因为运行日志轮转而自动删除。资讯数据库仍按 `NEWS_RETENTION_DAYS`（默认 180 天）清理。
 - 日常日志级别为 `INFO`；`DEBUG` 只在临时排障时启用。不会记录 API Key、完整提示词或完整模型回复。
 
 # AI 资讯模块
@@ -139,7 +139,7 @@ Docker Compose 默认使用 PostgreSQL 服务 `postgres`。启动后 2 分钟内
 | `NEWS_MAX_RESPONSE_BYTES` | `2097152` | 单响应大小上限（2 MB） |
 | `NEWS_MAX_CONCURRENCY` | `4` | 来源并发数 |
 | `NEWS_MAX_ENTRIES_PER_FETCH` | `200` | 单来源单轮最多入库条数 |
-| `NEWS_RETENTION_DAYS` | `90` | 数据保留天数（自动清理） |
+| `NEWS_RETENTION_DAYS` | `180` | 数据保留天数（自动清理） |
 | `NEWS_AI_SUMMARY_ENABLED` | `true` | AI 中文摘要开关 |
 | `NEWS_AI_MAX_ITEMS_PER_RUN` | `30` | 每轮最多 AI 摘要条数（费用上限） |
 | `NEWS_MAX_ITEMS_PER_SOURCE_PER_DAY` | `8` | 日报中单一来源的展示上限 |
