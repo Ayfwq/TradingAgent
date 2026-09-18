@@ -139,7 +139,7 @@
   规则分类、标签提取、可选 AI 摘要
               │
               ▼
-        SQLite（WAL 模式）
+        PostgreSQL（持久化数据卷）
               │
               ▼
           FastAPI 接口
@@ -166,7 +166,7 @@ web/
     __init__.py
     config.py             # 来源与调度配置
     models.py             # 数据模型
-    repository.py         # SQLite 存取
+    repository.py         # PostgreSQL 存取
     pipeline.py           # 标准化、过滤、去重、分类、摘要
     scheduler.py          # 定时运行与重试
     sources/
@@ -379,7 +379,7 @@ NEWS_MAX_CONCURRENCY=4
 NEWS_RETENTION_DAYS=90
 NEWS_AI_SUMMARY_ENABLED=true
 NEWS_AI_MAX_ITEMS_PER_RUN=30
-NEWS_DATABASE_PATH=/data/news/news.db
+NEWS_DATABASE_URL=postgresql://<user>:<password>@postgres:5432/<database>
 ```
 
 来源列表、关键词和来源权重使用项目内 YAML/JSON 配置，并提供安全默认值。API Key 继续使用现有模型配置机制，不写入仓库。
@@ -393,7 +393,7 @@ NEWS_DATABASE_PATH=/data/news/news.db
 - 开发模式：分别启动 FastAPI 和 `news-worker`；
 - 验收模式：通过 Docker Compose 启动完整环境。
 
-本地数据库放入可配置的数据目录，不写入 Git。SQLite 开启 WAL、忙等待和必要索引，适合“单 Worker 写、Web 读取”的模式。
+资讯数据使用 PostgreSQL 持久化，数据库连接通过环境变量配置；应用和 Worker 共用同一个数据库服务，数据库凭据不写入仓库。
 
 ### 12.2 阿里云 ECS
 
@@ -401,13 +401,13 @@ NEWS_DATABASE_PATH=/data/news/news.db
 
 - Web 和 Worker 使用同一镜像；
 - 使用不同启动命令；
-- 共用 `tradingagents_data` 数据卷；
+- 共用 PostgreSQL 服务和持久化数据卷；
 - 两个服务均配置 `restart: unless-stopped`；
 - 配置健康检查和日志轮转；
 - 主机和容器时区显示按上海时间，数据库仍存 UTC；
 - 部署后先观察 24 小时，再扩大来源数量。
 
-如果未来运行多个 Web 实例或采集量显著增加，再评估 PostgreSQL；首版无需提前增加复杂度。
+PostgreSQL 支持 Web 与 Worker 的并发读写，并为后续扩展多个 Web 实例保留空间。
 
 ## 13. 测试与验收标准
 
@@ -419,7 +419,7 @@ NEWS_DATABASE_PATH=/data/news/news.db
 - 标题及链接去重测试；
 - 分类与关键词过滤测试；
 - AI 成功、失败、超时和无 API Key 降级测试；
-- SQLite 并发读写和分页测试；
+- PostgreSQL 并发读写和分页测试；
 - API 参数、排序和响应结构测试；
 - HTML 转义和危险链接测试。
 
@@ -446,7 +446,7 @@ NEWS_DATABASE_PATH=/data/news/news.db
 
 ### 阶段 A：采集与存储
 
-- 建立数据模型和 SQLite Repository；
+- 建立数据模型和 PostgreSQL Repository；
 - 实现 RSS/Atom 通用适配器；
 - 接入核心来源；
 - 完成标准化、去重和来源状态记录；
@@ -491,7 +491,7 @@ NEWS_DATABASE_PATH=/data/news/news.db
 | 多平台重复报道 | 页面重复 | URL + 标题两级去重、事件合并 |
 | 综合源噪音较多 | 非 AI 内容进入 | 来源级关键词过滤与可调规则 |
 | 新闻内容包含恶意指令或 HTML | AI/页面安全风险 | 不可信输入隔离、Schema 校验、HTML 清洗 |
-| SQLite 锁竞争 | 短暂写入失败 | WAL、单写进程、忙等待、事务控制 |
+| PostgreSQL 连接抖动 | 短暂写入失败 | 健康检查、事务控制、容器自动重启 |
 | 容器重启 | 定时任务中断 | 持久化数据卷、自动重启、Worker 心跳 |
 
 ## 16. 当前不构成阻塞的待确认项

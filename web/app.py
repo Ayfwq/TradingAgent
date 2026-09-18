@@ -159,11 +159,16 @@ def _check_critical_dependencies() -> bool:
         settings = NewsSettings.from_env()
         if not settings.enabled:
             return True
-        # SQLite 是本项目资讯 API 的本地关键依赖；只执行 SELECT 1，超时很短，
+        # 数据库是本项目资讯 API 的关键依赖；只执行 SELECT 1，
         # 不访问外部 API，也不会把连接串、密钥或路径写入响应。
-        with sqlite3.connect(str(settings.database_path), timeout=0.2) as connection:
-            connection.execute("SELECT 1").fetchone()
-    except (OSError, ValueError, sqlite3.Error):
+        if settings.database_url:
+            import psycopg
+            with psycopg.connect(settings.database_url, connect_timeout=2) as connection:
+                connection.execute("SELECT 1").fetchone()
+        else:
+            with sqlite3.connect(str(settings.database_path), timeout=0.2) as connection:
+                connection.execute("SELECT 1").fetchone()
+    except Exception:  # noqa: BLE001 - health endpoint must fail closed
         return False
     return True
 

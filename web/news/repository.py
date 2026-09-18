@@ -1,4 +1,4 @@
-"""SQLite 持久化（WAL 模式）：news_items / news_sources / fetch_runs / news_kv。
+"""资讯数据库持久化：news_items / news_sources / fetch_runs / news_kv。
 
 设计要点（AI_NEWS_MODULE_PLAN.md 第 6、12 节）：
 - 单 Worker 写、Web 进程读：WAL + busy_timeout 保证并发不炸；
@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import base64
 import json
+import os
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass
@@ -85,6 +87,136 @@ CREATE TABLE IF NOT EXISTS news_kv (
 );
 """
 
+# PostgreSQL uses the same logical schema.  Keep timestamps as timestamptz so
+# the API continues to return timezone-aware ISO strings.
+_POSTGRES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS news_items (
+    id BIGSERIAL PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    source_name TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    original_summary TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL,
+    canonical_url TEXT NOT NULL UNIQUE,
+    published_at TIMESTAMPTZ NOT NULL,
+    fetched_at TIMESTAMPTZ NOT NULL,
+    category TEXT NOT NULL DEFAULT 'other',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    language TEXT NOT NULL DEFAULT 'en',
+    title_hash TEXT NOT NULL,
+    content_hash TEXT NOT NULL DEFAULT '',
+    importance_score INTEGER NOT NULL DEFAULT 0,
+    summary_status TEXT NOT NULL DEFAULT 'rss',
+    source_count INTEGER NOT NULL DEFAULT 1,
+    duplicate_of_id BIGINT,
+    created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_news_items_category ON news_items(category);
+CREATE INDEX IF NOT EXISTS idx_news_items_published ON news_items(published_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_news_items_source ON news_items(source_id);
+CREATE INDEX IF NOT EXISTS idx_news_items_title_hash ON news_items(title_hash);
+CREATE TABLE IF NOT EXISTS news_sources (
+    source_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    interval_minutes INTEGER,
+    last_attempt_at TIMESTAMPTZ,
+    last_success_at TIMESTAMPTZ,
+    last_duration_ms INTEGER,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    etag TEXT,
+    last_modified TEXT,
+    last_items_count INTEGER,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fetch_runs (
+    id BIGSERIAL PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    finished_at TIMESTAMPTZ,
+    status TEXT NOT NULL DEFAULT 'running',
+    new_count INTEGER NOT NULL DEFAULT 0,
+    duplicate_count INTEGER NOT NULL DEFAULT 0,
+    filtered_count INTEGER NOT NULL DEFAULT 0,
+    ai_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    duration_ms INTEGER
+);
+CREATE TABLE IF NOT EXISTS news_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+"""
+
+
+class _CompatRow(dict):
+    """A dict row that also supports SQLite-style integer indexing."""
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class _PostgresCursor:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+    @property
+    def lastrowid(self):
+        raise AttributeError("PostgreSQL uses INSERT ... RETURNING id")
+
+    def _row(self, row):
+        if row is None:
+            return None
+        normalized = []
+        for value in row:
+            if isinstance(value, datetime):
+                normalized.append(value.isoformat())
+            elif hasattr(value, "isoformat") and value.__class__.__name__ == "date":
+                normalized.append(value.isoformat())
+            else:
+                normalized.append(value)
+        return _CompatRow(zip([d.name for d in self._cursor.description], normalized))
+
+    def fetchone(self):
+        return self._row(self._cursor.fetchone())
+
+    def fetchall(self):
+        return [self._row(row) for row in self._cursor.fetchall()]
+
+
+class _PostgresConnection:
+    """Small DB-API compatibility layer for the existing repository methods."""
+
+    _placeholder = re.compile(r"\?")
+
+    def __init__(self, url: str):
+        import psycopg
+
+        self._conn = psycopg.connect(url)
+
+    def execute(self, sql, params=()):
+        return _PostgresCursor(self._conn.execute(self._placeholder.sub("%s", sql), params))
+
+    def executescript(self, sql):
+        for statement in sql.split(";"):
+            if statement.strip():
+                self._conn.execute(statement)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
 
 @dataclass
 class InsertResult:
@@ -108,24 +240,36 @@ def _source_filter_sql(source_ids: list[str] | None, leading: str = "AND") -> tu
 
 
 class NewsRepository:
-    """线程安全的 SQLite 存取层。"""
+    """线程安全的 SQLite/PostgreSQL 存取层。
+
+    A ``postgresql://``/``postgres://`` value selects PostgreSQL; filesystem
+    paths keep the original SQLite behavior for local development and tests.
+    """
 
     def __init__(self, db_path: str | Path) -> None:
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.database_url = str(db_path) if str(db_path).startswith(("postgresql://", "postgres://")) else None
+        self.db_path = None if self.database_url else Path(db_path)
+        if self.db_path:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
-        self._conn = sqlite3.connect(
-            str(self.db_path),
-            check_same_thread=False,
-            timeout=10.0,
-        )
-        self._conn.row_factory = sqlite3.Row
-        with self._lock:
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA synchronous=NORMAL")
-            self._conn.execute("PRAGMA busy_timeout=5000")
-            self._conn.executescript(_SCHEMA)
-            self._conn.commit()
+        if self.database_url:
+            self._conn = _PostgresConnection(self.database_url)
+            with self._lock:
+                self._conn.executescript(_POSTGRES_SCHEMA)
+                self._conn.commit()
+        else:
+            self._conn = sqlite3.connect(
+                str(self.db_path),
+                check_same_thread=False,
+                timeout=10.0,
+            )
+            self._conn.row_factory = sqlite3.Row
+            with self._lock:
+                self._conn.execute("PRAGMA journal_mode=WAL")
+                self._conn.execute("PRAGMA synchronous=NORMAL")
+                self._conn.execute("PRAGMA busy_timeout=5000")
+                self._conn.executescript(_SCHEMA)
+                self._conn.commit()
 
     def close(self) -> None:
         with self._lock:
@@ -278,11 +422,16 @@ class NewsRepository:
     def insert_item(self, item: NewsItem) -> InsertResult:
         with self._lock:
             try:
-                cursor = self._conn.execute(
+                insert_sql = (
                     "INSERT INTO news_items(source_id, source_name, title, summary, original_summary, "
                     "url, canonical_url, published_at, fetched_at, category, tags_json, language, "
                     "title_hash, content_hash, importance_score, summary_status, source_count, "
-                    "duplicate_of_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "duplicate_of_id, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                )
+                if self.database_url:
+                    insert_sql += " RETURNING id"
+                cursor = self._conn.execute(
+                    insert_sql,
                     (
                         item.source_id,
                         item.source_name,
@@ -305,7 +454,22 @@ class NewsRepository:
                         _iso(utc_now()),
                     ),
                 )
-            except sqlite3.IntegrityError:
+            except Exception as exc:
+                # SQLite and psycopg expose different integrity-error classes;
+                # only handle unique-key conflicts here and re-raise others.
+                is_integrity = isinstance(exc, sqlite3.IntegrityError)
+                if self.database_url:
+                    try:
+                        import psycopg
+                        is_integrity = is_integrity or isinstance(exc, psycopg.IntegrityError)
+                    except ImportError:
+                        pass
+                if not is_integrity:
+                    raise
+                # PostgreSQL marks the transaction failed after a unique
+                # violation; clear it before looking up the existing row.
+                if self.database_url:
+                    self._conn.rollback()
                 # canonical_url 已存在：第一级去重命中
                 existing = self._conn.execute(
                     "SELECT id, source_id, source_count FROM news_items WHERE canonical_url=?",
@@ -335,7 +499,8 @@ class NewsRepository:
                     return InsertResult(item_id=int(existing["id"]), is_new=False)
                 self._conn.rollback()
                 return InsertResult(item_id=0, is_new=False)
-            new_id = int(cursor.lastrowid)
+            returned_id = cursor.fetchone() if self.database_url else None
+            new_id = int(returned_id["id"] if returned_id is not None else cursor.lastrowid)
             # 第二级去重：同标题指纹 + 时间窗接近 -> 合并事件。
             primary_id = self._find_title_primary(item, exclude_id=new_id)
             if primary_id:
@@ -503,9 +668,13 @@ class NewsRepository:
     def day_stats(self, limit: int = 30, source_ids: list[str] | None = None) -> list[dict]:
         """近 N 个有数据的天（北京时间）：day / count / 当日热度 top 标题。"""
         source_clause, source_params = _source_filter_sql(source_ids)
+        day_expr = (
+            "(published_at AT TIME ZONE 'Asia/Shanghai')::date"
+            if self.database_url else "date(published_at, '+8 hours')"
+        )
         with self._lock:
             rows = self._conn.execute(
-                "SELECT date(published_at, '+8 hours') AS day, COUNT(*) AS count "
+                f"SELECT {day_expr} AS day, COUNT(*) AS count "
                 "FROM news_items WHERE duplicate_of_id IS NULL "
                 f"{source_clause} GROUP BY day ORDER BY day DESC LIMIT ?",
                 source_params + [limit],
@@ -515,7 +684,7 @@ class NewsRepository:
                 top = self._conn.execute(
                     "SELECT title FROM news_items "
                     "WHERE duplicate_of_id IS NULL "
-                    "AND date(published_at, '+8 hours') = ? "
+                    f"AND {day_expr} = ? "
                     f"{source_clause} "
                     "ORDER BY importance_score DESC, source_count DESC LIMIT 1",
                     [entry["day"]] + source_params,

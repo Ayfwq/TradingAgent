@@ -15,9 +15,9 @@
 - `.env`、`.env.production` 和任何真实 API Key
 - 私钥、证书、SSH 密钥
 - `.venv`、缓存、构建产物
-- 运行日志、研报、SQLite 检查点和 memory log
+- 运行日志、研报、数据库卷和 memory log
 - 用户数据以及本地编辑器配置
-- AI 资讯数据库（`news.db`，位于数据目录）
+- AI 资讯数据库（PostgreSQL 数据卷）
 
 相关规则已写入 `.gitignore` 和 `.dockerignore`。
 
@@ -92,7 +92,8 @@ docker compose restart
 docker compose down
 ```
 
-持久数据保存在 Docker 卷 `tradingagents_data` 中。普通更新或重新构建镜像不会删除该卷。
+持久数据保存在 Docker 卷 `tradingagents_data`（研报/缓存）和
+`tradingagents_tradingagents_postgres_data`（资讯 PostgreSQL）中。普通更新或重新构建镜像不会删除这些卷。
 
 ## 日志策略
 
@@ -124,7 +125,7 @@ uv run python -m web.news_worker
 uv run python -m web.news_worker --once
 ```
 
-本地数据库默认位于 `~/.tradingagents/news/news.db`（Docker 内为 `/data/news/news.db`），不写入 Git。启动后 2 分钟内完成首次采集；浏览器打开 `http://127.0.0.1:5000/news`。
+Docker Compose 默认使用 PostgreSQL 服务 `postgres`。启动后 2 分钟内完成首次采集；浏览器打开 `http://127.0.0.1:5000/news`。
 
 验收模式与生产一致：`docker compose up -d` 后访问 `/news`。
 
@@ -142,7 +143,7 @@ uv run python -m web.news_worker --once
 | `NEWS_AI_SUMMARY_ENABLED` | `true` | AI 中文摘要开关 |
 | `NEWS_AI_MAX_ITEMS_PER_RUN` | `30` | 每轮最多 AI 摘要条数（费用上限） |
 | `NEWS_MAX_ITEMS_PER_SOURCE_PER_DAY` | `8` | 日报中单一来源的展示上限 |
-| `NEWS_DATABASE_PATH` | 见上 | SQLite 路径 |
+| `NEWS_DATABASE_URL` | Compose 自动生成 | PostgreSQL 连接串 |
 | `NEWS_AI_PROVIDER` / `NEWS_AI_MODEL` / `NEWS_AI_BASE_URL` | 空 | 可选专用摘要端点；不设则复用 `TRADINGAGENTS_LLM_*` |
 | `NEWS_SOURCES` | 空 | 逗号分隔的来源 ID，覆盖默认启停列表；综合聚合源需显式启用 |
 
@@ -165,24 +166,23 @@ AI 摘要失败（无 Key、403、超时、返回非法 JSON）会自动降级�
 | 页面"等待首轮采集" | `docker compose logs news-worker`；本地跑 `--once` 看具体错误 |
 | 某来源连续失败 | `/news` 页面底部"数据源状态"面板查看最近错误；单个来源故障不影响其他来源 |
 | AI 摘要为 RSS 文案 | 检查模型 Key 与端点；确认 `NEWS_AI_SUMMARY_ENABLED=true` |
-| 数据库锁冲突 | 已启用 WAL + busy_timeout；确认只有一个 Worker 实例在写 |
+| 数据库连接失败 | 检查 `postgres` 服务健康状态和 `NEWS_DATABASE_URL`；`docker compose logs postgres` |
 | 采集到无关内容 | 综合源依赖关键词过滤，可禁用该源或调整 `web/news/config.py` 的 `RELEVANCE_KEYWORDS` |
 
 ## 数据库备份与恢复
 
 ```bash
-# 备份（容器内热备，SQLite WAL 模式下安全）
-docker compose exec news-worker sqlite3 /data/news/news.db \
-  ".backup /data/news/backup-$(date +%F).db"
-# 导出宿主机
-docker cp $(docker compose ps -q news-worker):/data/news/ /srv/backup/
-# 恢复：停止 Worker，替换 news.db 后重启
-docker compose stop news-worker
-docker cp /srv/backup/news.db $(docker compose ps -q news-worker):/data/news/news.db
-docker compose start news-worker
+# 备份 PostgreSQL（自洽的 SQL 文件）
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+  > /srv/backup/tradingagents-news-$(date +%F).sql
+# 恢复（先停止 Web/Worker，避免写入）
+docker compose stop tradingagents news-worker
+cat /srv/backup/tradingagents-news-YYYY-MM-DD.sql | \
+  docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB"'
+docker compose start tradingagents news-worker
 ```
 
-本地环境把路径替换为 `~/.tradingagents/news/news.db` 即可。资讯数据可随时重新采集，丢失不致命。
+资讯数据库由 PostgreSQL 持久化卷保存，定期使用 `pg_dump` 备份即可。
 
 ## 来源与关键词维护
 

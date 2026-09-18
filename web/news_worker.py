@@ -71,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = NewsSettings.from_env()
     if args.db:
         settings.database_path = __import__("pathlib").Path(args.db)
+        settings.database_url = None
     if args.interval is not None:
         settings.fetch_interval_minutes = args.interval
     if args.no_ai_summary:
@@ -83,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         while True:
             time.sleep(3600)
 
-    repo = NewsRepository(settings.database_path)
+    repo = NewsRepository(settings.database_url or settings.database_path)
     scheduler = NewsScheduler(
         settings,
         repo,

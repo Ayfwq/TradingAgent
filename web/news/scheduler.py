@@ -261,7 +261,7 @@ class NewsScheduler:
         logger.info(
             "新闻工作器已启动：%d 个来源，间隔 %d 分钟，数据库=%s",
             len(self.sources), self.settings.fetch_interval_minutes,
-            self.settings.database_path,
+            "PostgreSQL" if self.settings.database_url else self.settings.database_path,
         )
         while not self._stop_event.is_set():
             try:

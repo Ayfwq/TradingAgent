@@ -528,6 +528,8 @@ class NewsSettings:
     ai_request_timeout_seconds: float = 60.0
     max_items_per_source_per_day: int = 8
     database_path: Path = field(default_factory=_default_database_path)
+    # When set, PostgreSQL is used instead of the local SQLite path.
+    database_url: str | None = None
     # 可选：专用 AI 摘要端点；未配置时复用现有模型配置（DEFAULT_CONFIG）。
     ai_provider: str | None = None
     ai_model: str | None = None
@@ -550,6 +552,7 @@ class NewsSettings:
             ai_max_items_per_run=_env_int("NEWS_AI_MAX_ITEMS_PER_RUN", 30, 0, 200),
             max_items_per_source_per_day=_env_int("NEWS_MAX_ITEMS_PER_SOURCE_PER_DAY", 8, 1, 50),
             database_path=_default_database_path(),
+            database_url=os.getenv("NEWS_DATABASE_URL") or None,
             ai_provider=os.getenv("NEWS_AI_PROVIDER") or None,
             ai_model=os.getenv("NEWS_AI_MODEL") or None,
             ai_base_url=os.getenv("NEWS_AI_BASE_URL") or None,

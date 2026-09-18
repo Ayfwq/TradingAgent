@@ -31,11 +31,12 @@ _repo_lock = threading.Lock()
 def get_news_repository() -> NewsRepository:
     """按当前配置的数据库路径获取仓储单例（路径变化时重建）。"""
     settings = NewsSettings.from_env()
-    key = str(settings.database_path)
+    database = settings.database_url or settings.database_path
+    key = str(database)
     with _repo_lock:
         repo = _repo_cache.get(key)
         if repo is None:
-            repo = NewsRepository(settings.database_path)
+            repo = NewsRepository(database)
             _repo_cache[key] = repo
         return repo
 
