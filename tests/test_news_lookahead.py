@@ -100,5 +100,5 @@ def test_global_news_empty_after_filter_is_informative(monkeypatch):
 
     monkeypatch.setattr(ynews.yf, "Search", FakeSearch)
     out = ynews.get_global_news_yfinance("2025-05-09", look_back_days=7, limit=10)
-    assert "No global news found" in out
+    assert "未找到全球新闻" in out
     assert "###" not in out  # no empty article body

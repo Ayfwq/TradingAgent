@@ -15,6 +15,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_MAX_DEBATE_ROUNDS":    "max_debate_rounds",
     "TRADINGAGENTS_MAX_RISK_ROUNDS":      "max_risk_discuss_rounds",
     "TRADINGAGENTS_CHECKPOINT_ENABLED":   "checkpoint_enabled",
+    "TRADINGAGENTS_CHECKPOINT_DATABASE_URL": "checkpoint_database_url",
     "TRADINGAGENTS_BENCHMARK_TICKER":     "benchmark_ticker",
     "TRADINGAGENTS_TEMPERATURE":          "temperature",
     "TRADINGAGENTS_LLM_MAX_RETRIES":      "llm_max_retries",
@@ -122,6 +123,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
     # 检查点/恢复：为 True 时，LangGraph 在每个节点后保存状态，
     # 崩溃后可从最后一个成功步骤恢复。
     "checkpoint_enabled": False,
+    # Checkpoint 统一使用 PostgreSQL。未单独配置时复用资讯模块的数据库连接串；
+    # 若启用检查点但两者都未配置，运行时会明确报错，不会回退到本地文件数据库。
+    "checkpoint_database_url": os.getenv("TRADINGAGENTS_CHECKPOINT_DATABASE_URL")
+    or os.getenv("NEWS_DATABASE_URL"),
     # 分析师报告和最终决策的输出语言。项目默认生成简体中文研报；如需其他语言，
     # 可通过 TRADINGAGENTS_OUTPUT_LANGUAGE 覆盖。
     "output_language": "简体中文",

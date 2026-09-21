@@ -135,6 +135,13 @@ class ModelProfileService:
             encrypted_key = current.get("api_key_encrypted") if current else None
             if api_key is not None and str(api_key).strip():
                 encrypted_key = self._fernet().encrypt(str(api_key).strip().encode("utf-8")).decode("utf-8")
+            incoming_models = payload.get("discovered_models")
+            if incoming_models is None:
+                discovered_models = current.get("discovered_models", []) if current else []
+            else:
+                discovered_models = sorted({
+                    str(model).strip()[:160] for model in incoming_models if str(model).strip()
+                })[:300]
             profile = {
                 "id": profile_id or uuid.uuid4().hex,
                 "name": name[:80],
@@ -143,7 +150,7 @@ class ModelProfileService:
                 "quick_model": quick_model[:160],
                 "deep_model": deep_model[:160],
                 "api_key_encrypted": encrypted_key,
-                "discovered_models": current.get("discovered_models", []) if current else [],
+                "discovered_models": discovered_models,
                 "created_at": current.get("created_at", _now()) if current else _now(),
                 "updated_at": _now(),
             }
@@ -171,6 +178,85 @@ class ModelProfileService:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         return headers
+
+    def _connection_values(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        profile_id: str | None = None,
+    ) -> tuple[str, str | None]:
+        """解析表单连接；编辑时密钥留空会沿用服务器保存的密钥。"""
+        normalized_url = _normalise_base_url(base_url)
+        resolved_key = str(api_key).strip() if api_key is not None else ""
+        if not resolved_key and profile_id:
+            with self._lock:
+                _, profile = self._find(profile_id)
+                resolved_key = self._api_key(profile) or ""
+        return normalized_url, resolved_key or None
+
+    def discover_connection(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        profile_id: str | None = None,
+    ) -> dict[str, Any]:
+        """发现一个尚未保存（或正在编辑）的 OpenAI 兼容连接。"""
+        normalized_url, resolved_key = self._connection_values(base_url, api_key, profile_id)
+        response = requests.get(
+            f"{normalized_url}/models",
+            headers=self._headers(resolved_key),
+            timeout=15,
+        )
+        response.raise_for_status()
+        body = response.json()
+        data = body.get("data", []) if isinstance(body, dict) else []
+        models = sorted({
+            str(item.get("id", "")).strip()
+            for item in data
+            if isinstance(item, dict) and item.get("id")
+        })
+        return {"models": models}
+
+    def test_connection(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        model: str = "",
+        profile_id: str | None = None,
+    ) -> dict[str, Any]:
+        """模型为空时测试列表接口；有模型时验证一次最小对话请求。"""
+        normalized_url, resolved_key = self._connection_values(base_url, api_key, profile_id)
+        selected_model = model.strip()
+        if not selected_model:
+            result = self.discover_connection(normalized_url, resolved_key)
+            return {
+                "ok": True,
+                "message": "Endpoint 与 API Key 连接正常，请从下拉框选择模型",
+                "models": result["models"],
+            }
+        response = requests.post(
+            f"{normalized_url}/chat/completions",
+            headers={**self._headers(resolved_key), "Content-Type": "application/json"},
+            json={
+                "model": selected_model,
+                "messages": [{"role": "user", "content": "Reply with OK."}],
+                "max_tokens": 8,
+                "temperature": 0,
+            },
+            timeout=25,
+        )
+        response.raise_for_status()
+        body = response.json()
+        choices = body.get("choices", []) if isinstance(body, dict) else []
+        content = ""
+        if choices and isinstance(choices[0], dict):
+            content = str((choices[0].get("message") or {}).get("content") or "")
+        return {
+            "ok": True,
+            "message": "模型连接正常",
+            "model": selected_model,
+            "reply": content[:160],
+        }
 
     def discover(self, profile_id: str) -> dict[str, Any]:
         logger.debug("发现配置 %s 的模型", profile_id)

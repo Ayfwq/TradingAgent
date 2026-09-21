@@ -73,8 +73,8 @@ class PolymarketFormatTests(unittest.TestCase):
         with mock.patch.object(polymarket, "_request", return_value=_SEARCH):
             out = polymarket.get_prediction_markets("anything", limit=10)
         self.assertIn("Yes 76%", out)
-        self.assertIn("$5,000,000 volume", out)
-        self.assertIn("resolves 2030-12-31", out)
+        self.assertIn("交易量 $5,000,000", out)
+        self.assertIn("结算日期 2030-12-31", out)
         self.assertIn("1-week -4.5pp", out)  # -0.045 -> -4.5pp
 
     def test_weekly_change_omitted_when_absent(self):
@@ -87,7 +87,7 @@ class PolymarketFormatTests(unittest.TestCase):
     def test_no_matches_reports_clearly(self):
         with mock.patch.object(polymarket, "_request", return_value={"events": []}):
             out = polymarket.get_prediction_markets("obscure ticker", limit=6)
-        self.assertIn("No open prediction markets", out)
+        self.assertIn("没有开放的预测市场匹配", out)
 
 
 @pytest.mark.unit
@@ -98,7 +98,7 @@ class PolymarketResilienceTests(unittest.TestCase):
             polymarket, "_request", side_effect=requests.RequestException("boom")
         ):
             out = polymarket.get_prediction_markets("Fed rate cut")
-        self.assertIn("unavailable", out.lower())
+        self.assertIn("不可用", out)
         self.assertIn("Fed rate cut", out)
 
 

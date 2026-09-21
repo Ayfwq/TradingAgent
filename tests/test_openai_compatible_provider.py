@@ -26,7 +26,7 @@ def test_factory_routes_to_openai_client():
 @pytest.mark.unit
 def test_base_url_required(monkeypatch):
     monkeypatch.delenv("OPENAI_COMPATIBLE_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="requires a base_url"):
+    with pytest.raises(ValueError, match="需要 base_url"):
         create_llm_client(provider="openai_compatible", model="m").get_llm()
 
 

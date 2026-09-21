@@ -174,7 +174,7 @@ class TestFormatterHandlesRssPosts:
         }]
         with patch.object(reddit, "_fetch_subreddit", return_value=rss_posts):
             out = reddit.fetch_reddit_posts("NVDA", subreddits=("stocks",), inter_request_delay=0)
-        assert "via RSS feed" in out
+        assert "来自 RSS 源" in out
         assert "↑" not in out  # no fake score arrow
         assert "NVDA pops" in out
         assert "great quarter" in out

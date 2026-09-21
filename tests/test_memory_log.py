@@ -256,15 +256,15 @@ class TestTradingMemoryLogCore:
         log = make_log(tmp_path)
         _seed_completed(tmp_path, "NVDA", "2026-01-05", "Buy NVDA — AI capex thesis intact.", "Directionally correct.")
         ctx = log.get_past_context("NVDA")
-        assert "Past analyses of NVDA" in ctx
+        assert "NVDA 的历史分析" in ctx
         assert "Buy NVDA" in ctx
 
     def test_get_past_context_cross_ticker(self, tmp_path):
         log = make_log(tmp_path)
         _seed_completed(tmp_path, "AAPL", "2026-01-05", "Buy AAPL — Services growth.", "Correct.")
         ctx = log.get_past_context("NVDA")
-        assert "Recent cross-ticker lessons" in ctx
-        assert "Past analyses of NVDA" not in ctx
+        assert "近期其他股票的经验" in ctx
+        assert "NVDA 的历史分析" not in ctx
 
     def test_n_same_limit_respected(self, tmp_path):
         """Only the n_same most recent same-ticker entries are included."""
@@ -626,8 +626,8 @@ class TestDeferredReflection:
         )
         messages = mock_llm.invoke.call_args[0][0]
         human_content = next(content for role, content in messages if role == "human")
-        assert "Alpha vs ^N225:" in human_content
-        assert "Alpha vs SPY:" not in human_content
+        assert "相对于 ^N225 的 Alpha：" in human_content
+        assert "相对于 SPY 的 Alpha：" not in human_content
 
     def test_reflector_defaults_to_spy_for_unupdated_callers(self):
         """Default benchmark_name keeps the SPY label for legacy callers."""
@@ -641,7 +641,7 @@ class TestDeferredReflection:
         )
         messages = mock_llm.invoke.call_args[0][0]
         human_content = next(content for role, content in messages if role == "human")
-        assert "Alpha vs SPY:" in human_content
+        assert "相对于 SPY 的 Alpha：" in human_content
 
     # TradingAgentsGraph._resolve_pending_entries
 
@@ -703,7 +703,7 @@ class TestPortfolioManagerInjection:
         pm_node = create_portfolio_manager(llm)
         state = _make_pm_state(past_context="[2026-01-05 | NVDA | Buy | +5.0% | +2.0% | 5d]\nGreat call.")
         pm_node(state)
-        assert "Lessons from prior decisions and outcomes" in captured["prompt"]
+        assert "过往决策与结果中的经验" in captured["prompt"]
         assert "Great call." in captured["prompt"]
 
     def test_pm_no_past_context_no_section(self):
@@ -713,7 +713,7 @@ class TestPortfolioManagerInjection:
         pm_node = create_portfolio_manager(llm)
         state = _make_pm_state(past_context="")
         pm_node(state)
-        assert "Lessons from prior decisions" not in captured["prompt"]
+        assert "过往决策与结果中的经验" not in captured["prompt"]
 
     def test_pm_returns_rendered_markdown_with_rating(self):
         """The structured PortfolioDecision is rendered to markdown that
@@ -757,9 +757,9 @@ class TestPortfolioManagerInjection:
         _resolve_entry(log, "NVDA", "2026-01-05", DECISION_BUY, "Momentum confirmed.")
         _resolve_entry(log, "AAPL", "2026-01-06", DECISION_SELL, "Overvalued.")
         result = log.get_past_context("NVDA")
-        assert "Past analyses of NVDA" in result
-        assert "Recent cross-ticker lessons" in result
-        same_block, cross_block = result.split("Recent cross-ticker lessons")
+        assert "NVDA 的历史分析" in result
+        assert "近期其他股票的经验" in result
+        same_block, cross_block = result.split("近期其他股票的经验")
         assert "NVDA" in same_block
         assert "AAPL" in cross_block
 

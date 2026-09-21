@@ -43,6 +43,13 @@ def test_profile_update_without_key_preserves_secret(tmp_path):
     assert service.graph_overrides(created["id"])["llm_api_key"] == "secret-key"
 
 
+def test_profile_saves_discovered_models_from_unsaved_form(tmp_path):
+    service = ModelProfileService(tmp_path)
+    profile = service.save(_payload(discovered_models=["model-b", "model-a", "model-a"]))
+
+    assert profile["discovered_models"] == ["model-a", "model-b"]
+
+
 def test_discover_models_persists_provider_response(tmp_path):
     service = ModelProfileService(tmp_path)
     profile = service.save(_payload())
@@ -57,6 +64,46 @@ def test_discover_models_persists_provider_response(tmp_path):
     assert request.call_args.args[0] == "https://api.example.com/v1/models"
     assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer secret-key"
     assert service.list()[0]["discovered_models"] == ["model-a", "model-b"]
+
+
+def test_unsaved_connection_can_discover_before_model_is_selected(tmp_path):
+    service = ModelProfileService(tmp_path)
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"data": [{"id": "model-b"}, {"id": "model-a"}]}
+
+    with patch("web.model_profiles.requests.get", return_value=response) as request:
+        result = service.discover_connection("https://api.example.com/v1/", "new-secret")
+
+    assert result == {"models": ["model-a", "model-b"]}
+    assert request.call_args.args[0] == "https://api.example.com/v1/models"
+    assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer new-secret"
+
+
+def test_connection_without_model_uses_models_endpoint(tmp_path):
+    service = ModelProfileService(tmp_path)
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"data": [{"id": "model-a"}]}
+
+    with patch("web.model_profiles.requests.get", return_value=response):
+        result = service.test_connection("https://api.example.com/v1", "secret-key")
+
+    assert result["ok"] is True
+    assert result["models"] == ["model-a"]
+
+
+def test_unsaved_connection_reuses_saved_key_while_editing(tmp_path):
+    service = ModelProfileService(tmp_path)
+    profile = service.save(_payload())
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"data": []}
+
+    with patch("web.model_profiles.requests.get", return_value=response) as request:
+        service.discover_connection(profile["base_url"], "", profile["id"])
+
+    assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer secret-key"
 
 
 def test_test_profile_calls_chat_completion(tmp_path):

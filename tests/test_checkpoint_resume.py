@@ -1,7 +1,8 @@
 """Test checkpoint resume: crash mid-analysis, re-run resumes from last node."""
 
-import tempfile
+import os
 import unittest
+import uuid
 from typing import TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -44,12 +45,29 @@ def _build_graph() -> StateGraph:
 
 class TestCheckpointResume(unittest.TestCase):
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.ticker = "TEST"
+        self.database_url = (
+            os.getenv("TRADINGAGENTS_CHECKPOINT_TEST_DATABASE_URL")
+            or os.getenv("TRADINGAGENTS_CHECKPOINT_DATABASE_URL")
+            or os.getenv("NEWS_DATABASE_URL")
+        )
+        self.ticker = "TEST_" + uuid.uuid4().hex[:8]
         self.date = "2026-04-20"
+
+    def require_database(self):
+        if not self.database_url:
+            self.skipTest(
+                "设置 TRADINGAGENTS_CHECKPOINT_TEST_DATABASE_URL 或 "
+                "TRADINGAGENTS_CHECKPOINT_DATABASE_URL 后运行 PostgreSQL Checkpoint 测试"
+            )
+
+    def tearDown(self):
+        if self.database_url:
+            for date in (self.date, "2026-04-21"):
+                clear_checkpoint(self.database_url, self.ticker, date)
 
     def test_crash_and_resume(self):
         """Crash at 'trader' node, then resume from checkpoint."""
+        self.require_database()
         global _should_crash
         builder = _build_graph()
         tid = thread_id(self.ticker, self.date)
@@ -57,19 +75,19 @@ class TestCheckpointResume(unittest.TestCase):
 
         # Run 1: crash at trader node
         _should_crash = True
-        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+        with get_checkpointer(self.database_url) as saver:
             graph = builder.compile(checkpointer=saver)
             with self.assertRaises(RuntimeError):
                 graph.invoke({"count": 0}, config=cfg)
 
         # Checkpoint should exist at step 1 (analyst completed)
-        self.assertTrue(has_checkpoint(self.tmpdir, self.ticker, self.date))
-        step = checkpoint_step(self.tmpdir, self.ticker, self.date)
+        self.assertTrue(has_checkpoint(self.database_url, self.ticker, self.date))
+        step = checkpoint_step(self.database_url, self.ticker, self.date)
         self.assertEqual(step, 1)
 
         # Run 2: resume — trader succeeds this time
         _should_crash = False
-        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+        with get_checkpointer(self.database_url) as saver:
             graph = builder.compile(checkpointer=saver)
             result = graph.invoke(None, config=cfg)
 
@@ -78,6 +96,7 @@ class TestCheckpointResume(unittest.TestCase):
 
     def test_clear_checkpoint_allows_fresh_start(self):
         """After clearing, the graph starts from scratch."""
+        self.require_database()
         global _should_crash
         builder = _build_graph()
         tid = thread_id(self.ticker, self.date)
@@ -85,20 +104,20 @@ class TestCheckpointResume(unittest.TestCase):
 
         # Create a checkpoint by crashing
         _should_crash = True
-        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+        with get_checkpointer(self.database_url) as saver:
             graph = builder.compile(checkpointer=saver)
             with self.assertRaises(RuntimeError):
                 graph.invoke({"count": 0}, config=cfg)
 
-        self.assertTrue(has_checkpoint(self.tmpdir, self.ticker, self.date))
+        self.assertTrue(has_checkpoint(self.database_url, self.ticker, self.date))
 
         # Clear it
-        clear_checkpoint(self.tmpdir, self.ticker, self.date)
-        self.assertFalse(has_checkpoint(self.tmpdir, self.ticker, self.date))
+        clear_checkpoint(self.database_url, self.ticker, self.date)
+        self.assertFalse(has_checkpoint(self.database_url, self.ticker, self.date))
 
         # Fresh run succeeds from scratch
         _should_crash = False
-        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+        with get_checkpointer(self.database_url) as saver:
             graph = builder.compile(checkpointer=saver)
             result = graph.invoke({"count": 0}, config=cfg)
 
@@ -107,6 +126,7 @@ class TestCheckpointResume(unittest.TestCase):
 
     def test_different_date_starts_fresh(self):
         """A different date must NOT resume from an existing checkpoint."""
+        self.require_database()
         global _should_crash
         builder = _build_graph()
         date2 = "2026-04-21"
@@ -114,22 +134,22 @@ class TestCheckpointResume(unittest.TestCase):
         # Run with date1 — crash to leave a checkpoint
         _should_crash = True
         tid1 = thread_id(self.ticker, self.date)
-        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+        with get_checkpointer(self.database_url) as saver:
             graph = builder.compile(checkpointer=saver)
             with self.assertRaises(RuntimeError):
                 graph.invoke({"count": 0}, config={"configurable": {"thread_id": tid1}})
 
-        self.assertTrue(has_checkpoint(self.tmpdir, self.ticker, self.date))
+        self.assertTrue(has_checkpoint(self.database_url, self.ticker, self.date))
 
         # date2 should have no checkpoint
-        self.assertFalse(has_checkpoint(self.tmpdir, self.ticker, date2))
+        self.assertFalse(has_checkpoint(self.database_url, self.ticker, date2))
 
         # Run with date2 — should start fresh and succeed
         _should_crash = False
         tid2 = thread_id(self.ticker, date2)
         self.assertNotEqual(tid1, tid2)
 
-        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+        with get_checkpointer(self.database_url) as saver:
             graph = builder.compile(checkpointer=saver)
             result = graph.invoke({"count": 0}, config={"configurable": {"thread_id": tid2}})
 
@@ -137,7 +157,7 @@ class TestCheckpointResume(unittest.TestCase):
         self.assertEqual(result["count"], 11)
 
         # Original date checkpoint still exists (untouched)
-        self.assertTrue(has_checkpoint(self.tmpdir, self.ticker, self.date))
+        self.assertTrue(has_checkpoint(self.database_url, self.ticker, self.date))
 
 
 class TestCheckpointSignature(unittest.TestCase):
@@ -145,9 +165,28 @@ class TestCheckpointSignature(unittest.TestCase):
     resume the previous run's checkpoint (#1089)."""
 
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self.ticker = "TEST"
+        self.database_url = (
+            os.getenv("TRADINGAGENTS_CHECKPOINT_TEST_DATABASE_URL")
+            or os.getenv("TRADINGAGENTS_CHECKPOINT_DATABASE_URL")
+            or os.getenv("NEWS_DATABASE_URL")
+        )
+        self.ticker = "TEST_" + uuid.uuid4().hex[:8]
         self.date = "2026-04-20"
+
+    def require_database(self):
+        if not self.database_url:
+            self.skipTest(
+                "设置 TRADINGAGENTS_CHECKPOINT_TEST_DATABASE_URL 或 "
+                "TRADINGAGENTS_CHECKPOINT_DATABASE_URL 后运行 PostgreSQL Checkpoint 测试"
+            )
+
+    def tearDown(self):
+        if self.database_url:
+            for signature in (
+                "analysts=market,news,fundamentals|asset=stock",
+                "analysts=market|asset=stock",
+            ):
+                clear_checkpoint(self.database_url, self.ticker, self.date, signature)
 
     def test_empty_signature_is_legacy_id(self):
         self.assertEqual(
@@ -166,6 +205,7 @@ class TestCheckpointSignature(unittest.TestCase):
         )
 
     def test_different_signature_starts_fresh(self):
+        self.require_database()
         global _should_crash
         builder = _build_graph()
         sig1 = "analysts=market,news,fundamentals|asset=stock"
@@ -173,24 +213,24 @@ class TestCheckpointSignature(unittest.TestCase):
 
         _should_crash = True
         tid1 = thread_id(self.ticker, self.date, sig1)
-        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+        with get_checkpointer(self.database_url) as saver:
             graph = builder.compile(checkpointer=saver)
             with self.assertRaises(RuntimeError):
                 graph.invoke({"count": 0}, config={"configurable": {"thread_id": tid1}})
 
-        self.assertTrue(has_checkpoint(self.tmpdir, self.ticker, self.date, sig1))
+        self.assertTrue(has_checkpoint(self.database_url, self.ticker, self.date, sig1))
         # A different graph shape has no checkpoint to resume from.
-        self.assertFalse(has_checkpoint(self.tmpdir, self.ticker, self.date, sig2))
+        self.assertFalse(has_checkpoint(self.database_url, self.ticker, self.date, sig2))
 
         _should_crash = False
         tid2 = thread_id(self.ticker, self.date, sig2)
         self.assertNotEqual(tid1, tid2)
-        with get_checkpointer(self.tmpdir, self.ticker) as saver:
+        with get_checkpointer(self.database_url) as saver:
             graph = builder.compile(checkpointer=saver)
             result = graph.invoke({"count": 0}, config={"configurable": {"thread_id": tid2}})
         self.assertEqual(result["count"], 11)
         # sig1's checkpoint remains untouched.
-        self.assertTrue(has_checkpoint(self.tmpdir, self.ticker, self.date, sig1))
+        self.assertTrue(has_checkpoint(self.database_url, self.ticker, self.date, sig1))
 
     def test_run_signature_captures_graph_shape(self):
         from tradingagents.graph.trading_graph import TradingAgentsGraph

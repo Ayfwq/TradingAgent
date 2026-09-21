@@ -62,7 +62,7 @@ class AnalystWallTimeTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_summary(),
-            "Analyst wall time: News 4.00s | Market 2.25s",
+            "分析师耗时：News 4.00s | Market 2.25s",
         )
 
     def test_syncs_wall_time_from_sequential_chunks(self):

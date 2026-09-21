@@ -70,8 +70,8 @@ class BuildInstrumentContextTests(unittest.TestCase):
     def test_mentions_exact_symbol_without_identity(self):
         context = build_instrument_context("7203.T")
         self.assertIn("7203.T", context)
-        self.assertIn("exchange suffix", context)
-        self.assertNotIn("Resolved identity", context)
+        self.assertIn("保留交易所后缀", context)
+        self.assertNotIn("已解析身份", context)
 
     def test_injects_resolved_identity(self):
         context = build_instrument_context(
@@ -83,17 +83,17 @@ class BuildInstrumentContextTests(unittest.TestCase):
                 "exchange": "PNK",
             },
         )
-        self.assertIn("Company: TOTO LTD.", context)
+        self.assertIn("公司：TOTO LTD.", context)
         self.assertIn("Industrials / Building Products & Equipment", context)
-        self.assertIn("Exchange: PNK", context)
-        self.assertIn("Do not substitute a different company", context)
+        self.assertIn("交易所：PNK", context)
+        self.assertIn("不要替换成其他公司或代码", context)
 
     def test_crypto_uses_name_label_and_keeps_hint(self):
         context = build_instrument_context(
             "BTC-USD", "crypto", {"company_name": "Bitcoin USD"}
         )
-        self.assertIn("Name: Bitcoin USD", context)
-        self.assertIn("crypto asset rather than a company", context)
+        self.assertIn("名称：Bitcoin USD", context)
+        self.assertIn("加密资产而非公司", context)
 
 
 @pytest.mark.unit
@@ -115,7 +115,7 @@ class GetInstrumentContextFromStateTests(unittest.TestCase):
         context = get_instrument_context_from_state(
             {"company_of_interest": "BTC-USD", "asset_type": "crypto"}
         )
-        self.assertIn("crypto asset", context)
+        self.assertIn("加密资产而非公司", context)
 
 
 @pytest.mark.unit

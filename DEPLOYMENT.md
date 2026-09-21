@@ -109,6 +109,10 @@ docker compose down
 
 ## 本地运行
 
+本地直接运行 Web/Worker 时也必须连接 PostgreSQL。先执行 `docker compose up -d postgres`，
+然后将 `TRADINGAGENTS_CHECKPOINT_DATABASE_URL` 和 `NEWS_DATABASE_URL` 指向
+`127.0.0.1:15432`（Windows PowerShell 使用 `$env:变量名='连接串'` 设置）。
+
 开发模式（两个终端）：
 
 ```bash
@@ -144,6 +148,7 @@ Docker Compose 默认使用 PostgreSQL 服务 `postgres`。启动后 2 分钟内
 | `NEWS_AI_MAX_ITEMS_PER_RUN` | `30` | 每轮最多 AI 摘要条数（费用上限） |
 | `NEWS_MAX_ITEMS_PER_SOURCE_PER_DAY` | `8` | 日报中单一来源的展示上限 |
 | `NEWS_DATABASE_URL` | Compose 自动生成 | PostgreSQL 连接串 |
+| `TRADINGAGENTS_CHECKPOINT_DATABASE_URL` | Compose 自动生成 | LangGraph Checkpoint PostgreSQL 连接串；未配置时 Checkpoint 启动失败 |
 | `NEWS_AI_PROVIDER` / `NEWS_AI_MODEL` / `NEWS_AI_BASE_URL` | 空 | 可选专用摘要端点；不设则复用 `TRADINGAGENTS_LLM_*` |
 | `NEWS_SOURCES` | 空 | 逗号分隔的来源 ID，覆盖默认启停列表；综合聚合源需显式启用 |
 

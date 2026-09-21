@@ -159,7 +159,7 @@ uv run python scripts/run_ashare.py 000001.SZ 2026-08-14
 - **决策日志**（默认开启）：每次运行 append 到 `~/.tradingagents/memory/trading_memory.md`；
   下次同 ticker 运行先 `_resolve_pending_entries` 拉真实收益（raw + alpha vs 基准）生成反思，
   注入 Portfolio Manager prompt
-- **检查点续跑**（`--checkpoint` 开启）：per-ticker SQLite，崩溃后从最后成功节点续跑；
+- **检查点续跑**（`--checkpoint` 开启）：per-ticker PostgreSQL 线程，崩溃后从最后成功节点续跑；
   线程 ID 绑定 ticker+date+图形态签名
 
 ## 8. 关键优化切入点（供后续讨论）

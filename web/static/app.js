@@ -18,13 +18,16 @@ document.querySelector('#trade-date').value = localToday;
 document.querySelector('#trade-date').max = localToday;
 
 document.querySelector('#locator-trigger').addEventListener('click', () => {
-  locatorPanel.classList.remove('hidden');
-  locatorPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  openModal(locatorPanel);
   window.setTimeout(() => document.querySelector('#company-query').focus(), 300);
 });
 
 document.querySelector('#locator-close').addEventListener('click', () => {
-  locatorPanel.classList.add('hidden');
+  closeModal(locatorPanel);
+});
+
+locatorPanel.addEventListener('click', (event) => {
+  if (event.target === locatorPanel) closeModal(locatorPanel);
 });
 
 function renderLocatorResults(data) {
@@ -56,7 +59,7 @@ function renderLocatorResults(data) {
       document.querySelector('#asset-type').value = 'stock';
       note.textContent = `已选择 ${button.dataset.ticker}，可以开始生成研报。`;
       note.classList.remove('error');
-      locatorPanel.classList.add('hidden');
+      closeModal(locatorPanel);
       form.scrollIntoView({ behavior: 'smooth', block: 'center' });
       submitButton.focus();
     });
@@ -252,6 +255,7 @@ const modelStatus = document.querySelector('#model-form-status');
 const discoveredModels = document.querySelector('#discovered-models');
 let modelProfiles = [];
 let modelTemplates = [];
+let discoveredModelOptions = [];
 
 function setModelStatus(message = '', kind = '') {
   modelStatus.textContent = message;
@@ -263,23 +267,32 @@ function currentProfileId() {
 }
 
 function showDiscoveredModels(models = []) {
+  const quickSelect = document.querySelector('#model-quick');
+  const deepSelect = document.querySelector('#model-deep');
+  const quickValue = quickSelect.value;
+  const deepValue = deepSelect.value;
+  const uniqueModels = [...new Set(models.filter(Boolean))];
+  discoveredModelOptions = uniqueModels;
+  const fillSelect = (select, selected, placeholder) => {
+    const choices = uniqueModels.includes(selected) || !selected ? uniqueModels : [selected, ...uniqueModels];
+    select.innerHTML = `<option value="">${placeholder}</option>` + choices.map((model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`).join('');
+    select.value = selected;
+  };
+  fillSelect(quickSelect, quickValue, '请选择日常分析模型');
+  fillSelect(deepSelect, deepValue, '请选择深度推理模型');
   if (!models.length) {
     discoveredModels.classList.add('hidden');
     discoveredModels.innerHTML = '';
     return;
   }
   discoveredModels.classList.remove('hidden');
-  discoveredModels.innerHTML = `<span>接口返回 ${models.length} 个模型，点击可填入“日常分析模型”</span>${models.map((model) => `<button class="model-chip" type="button" data-model="${escapeHtml(model)}">${escapeHtml(model)}</button>`).join('')}`;
-  discoveredModels.querySelectorAll('[data-model]').forEach((button) => {
-    button.addEventListener('click', () => { document.querySelector('#model-quick').value = button.dataset.model; });
-  });
+  discoveredModels.innerHTML = `<span>接口返回 ${uniqueModels.length} 个模型，已载入上方两个下拉框。</span>`;
 }
 
 function resetModelForm() {
   modelProfileForm.reset();
   document.querySelector('#editing-profile-id').value = '';
   document.querySelector('#model-form-title').textContent = '新增模型 Endpoint';
-  document.querySelector('#delete-model-profile').classList.add('hidden');
   setModelStatus();
   showDiscoveredModels();
   const custom = modelTemplates.find((item) => item.id === 'custom');
@@ -291,13 +304,16 @@ function populateModelForm(profile) {
   document.querySelector('#model-name').value = profile.name || '';
   modelTemplate.value = profile.template || 'custom';
   document.querySelector('#model-base-url').value = profile.base_url || '';
-  document.querySelector('#model-quick').value = profile.quick_model || '';
-  document.querySelector('#model-deep').value = profile.deep_model || '';
+  showDiscoveredModels(profile.discovered_models || []);
+  const quickSelect = document.querySelector('#model-quick');
+  const deepSelect = document.querySelector('#model-deep');
+  if (profile.quick_model && ![...quickSelect.options].some((item) => item.value === profile.quick_model)) quickSelect.add(new Option(profile.quick_model, profile.quick_model));
+  if (profile.deep_model && ![...deepSelect.options].some((item) => item.value === profile.deep_model)) deepSelect.add(new Option(profile.deep_model, profile.deep_model));
+  quickSelect.value = profile.quick_model || '';
+  deepSelect.value = profile.deep_model || '';
   document.querySelector('#model-api-key').value = '';
   document.querySelector('#model-form-title').textContent = `编辑：${profile.name}`;
-  document.querySelector('#delete-model-profile').classList.remove('hidden');
   setModelStatus(profile.has_api_key ? '密钥已安全保存' : '未设置密钥');
-  showDiscoveredModels(profile.discovered_models || []);
 }
 
 function renderModelProfiles() {
@@ -309,11 +325,17 @@ function renderModelProfiles() {
     return;
   }
   const editing = currentProfileId();
-  modelProfileList.innerHTML = modelProfiles.map((profile) => `<button class="saved-profile ${profile.id === editing ? 'active' : ''}" type="button" data-profile-id="${escapeHtml(profile.id)}"><strong>${escapeHtml(profile.name)}</strong><small>${escapeHtml(profile.quick_model)} · ${profile.has_api_key ? '已配置密钥' : '无密钥'}</small></button>`).join('');
-  modelProfileList.querySelectorAll('[data-profile-id]').forEach((button) => {
+  modelProfileList.innerHTML = modelProfiles.map((profile) => `<div class="saved-profile-row"><button class="saved-profile ${profile.id === editing ? 'active' : ''}" type="button" data-profile-id="${escapeHtml(profile.id)}"><strong>${escapeHtml(profile.name)}</strong><small>${escapeHtml(profile.quick_model)} · ${profile.has_api_key ? '已配置密钥' : '无密钥'}</small></button><button class="saved-profile-delete" type="button" data-delete-profile-id="${escapeHtml(profile.id)}" aria-label="删除 ${escapeHtml(profile.name)}" title="删除配置"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="M7 7l1 13h8l1-13"></path><path d="M10 11v5M14 11v5"></path></svg></button></div>`).join('');
+  modelProfileList.querySelectorAll('.saved-profile[data-profile-id]').forEach((button) => {
     button.addEventListener('click', () => {
       const profile = modelProfiles.find((item) => item.id === button.dataset.profileId);
       if (profile) { populateModelForm(profile); renderModelProfiles(); }
+    });
+  });
+  modelProfileList.querySelectorAll('.saved-profile-delete[data-delete-profile-id]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      deleteModelProfile(button.dataset.deleteProfileId);
     });
   });
 }
@@ -354,6 +376,7 @@ modelProfileForm.addEventListener('submit', async (event) => {
     name: document.querySelector('#model-name').value.trim(), template: modelTemplate.value,
     base_url: document.querySelector('#model-base-url').value.trim(), quick_model: document.querySelector('#model-quick').value.trim(),
     deep_model: document.querySelector('#model-deep').value.trim(), api_key: document.querySelector('#model-api-key').value,
+    discovered_models: discoveredModelOptions,
   };
   try {
     const response = await fetch(profileId ? `/api/model-profiles/${profileId}` : '/api/model-profiles', { method: profileId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -369,15 +392,22 @@ modelProfileForm.addEventListener('submit', async (event) => {
 
 async function invokeProfileAction(action) {
   const profileId = currentProfileId();
-  if (!profileId) { setModelStatus('请先保存配置，再执行此操作', 'error'); return; }
+  const baseUrl = document.querySelector('#model-base-url').value.trim();
+  const apiKey = document.querySelector('#model-api-key').value;
+  if (!baseUrl) { setModelStatus('请先填写 Endpoint URL', 'error'); return; }
+  if (!apiKey.trim() && !profileId) { setModelStatus('请先填写 API Key', 'error'); return; }
   const button = document.querySelector(`#${action}-models`.replace('discover-models', 'discover-models').replace('test-models', 'test-model'));
   if (button) button.disabled = true;
   setModelStatus(action === 'discover' ? '正在读取模型列表…' : '正在验证连接…');
   try {
-    const response = await fetch(`/api/model-profiles/${profileId}/${action}`, { method: 'POST' });
+    const response = await fetch(`/api/model-connections/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_id: profileId || null, base_url: baseUrl, api_key: apiKey, model: document.querySelector('#model-quick').value }),
+    });
     const data = await response.json();
     if (!response.ok) throw new Error(data.detail || '请求失败');
-    if (action === 'discover') { showDiscoveredModels(data.models || []); await loadModelCenter(); setModelStatus(`发现 ${data.models?.length || 0} 个模型`, 'success'); }
+    if (data.models) showDiscoveredModels(data.models);
+    if (action === 'discover') setModelStatus(`发现 ${data.models?.length || 0} 个模型，请从下拉框选择`, 'success');
     else setModelStatus(`${data.message}${data.reply ? `：${data.reply}` : ''}`, 'success');
   } catch (error) { setModelStatus(error.message, 'error'); }
   finally { if (button) button.disabled = false; }
@@ -385,16 +415,15 @@ async function invokeProfileAction(action) {
 
 document.querySelector('#discover-models').addEventListener('click', () => invokeProfileAction('discover'));
 document.querySelector('#test-model').addEventListener('click', () => invokeProfileAction('test'));
-document.querySelector('#delete-model-profile').addEventListener('click', async () => {
-  const profileId = currentProfileId();
+async function deleteModelProfile(profileId) {
   if (!profileId || !confirm('确认删除这条模型配置？')) return;
   try {
     const response = await fetch(`/api/model-profiles/${profileId}`, { method: 'DELETE' });
     if (!response.ok) { const data = await response.json(); throw new Error(data.detail || '删除失败'); }
-    resetModelForm();
+    if (currentProfileId() === profileId) resetModelForm();
     await loadModelCenter();
   } catch (error) { setModelStatus(error.message, 'error'); }
-});
+}
 
 loadModelCenter().catch(() => { modelProfileList.innerHTML = '<p class="profile-empty">模型配置加载失败</p>'; });
 loadHistoryPicker();

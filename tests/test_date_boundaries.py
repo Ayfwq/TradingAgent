@@ -36,7 +36,7 @@ def test_get_yfin_requests_inclusive_end(monkeypatch):
     # end is requested one day past end_date so 2025-05-09 is included (#987).
     assert captured["end"] == "2025-05-10"
     # Header still reflects the requested range, not the internal +1 day.
-    assert "to 2025-05-09" in out
+    assert "至 2025-05-09" in out
 
 
 @pytest.mark.unit

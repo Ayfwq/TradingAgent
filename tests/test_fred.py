@@ -72,7 +72,7 @@ class FredResolutionTests(unittest.TestCase):
         # Invalid indicator -> actionable message, not a crash (no API call).
         out = fred.get_macro_data("bank of japan rate", "2026-01-01")
         self.assertIn("FRED", out)
-        self.assertIn("not a known macro alias", out)
+        self.assertIn("不是已知宏观别名", out)
 
 
 @pytest.mark.unit
@@ -92,10 +92,10 @@ class FredFormattingTests(unittest.TestCase):
     def test_report_has_header_latest_change_and_table(self):
         with mock.patch.object(fred, "_request", side_effect=_request_stub()):
             out = fred.get_macro_data("unemployment", "2025-09-30", 365)
-        self.assertIn("## FRED: Unemployment Rate (UNRATE)", out)
-        self.assertIn("Units: %", out)
-        self.assertIn("Frequency: Monthly (SA)", out)
-        self.assertIn("**Latest:** 4.4 (2025-09-01)", out)
+        self.assertIn("## FRED：Unemployment Rate（UNRATE）", out)
+        self.assertIn("单位：%", out)
+        self.assertIn("频率：Monthly (SA)", out)
+        self.assertIn("**最新值：** 4.4（2025-09-01）", out)
         # change over the window: 4.4 - 4.1 = +0.30
         self.assertIn("+0.30", out)
         self.assertIn("| 2025-06-01 | 4.1 |", out)
@@ -110,7 +110,7 @@ class FredFormattingTests(unittest.TestCase):
         empty = {"observations": []}
         with mock.patch.object(fred, "_request", side_effect=_request_stub(obs=empty)):
             out = fred.get_macro_data("unemployment", "2025-09-30", 30)
-        self.assertIn("No observations", out)
+        self.assertIn("没有 UNRATE 的观测值", out)
 
     def test_unknown_series_returns_not_found_message(self):
         # A well-formed but unknown series ID returns guidance, not a crash, so
@@ -118,7 +118,7 @@ class FredFormattingTests(unittest.TestCase):
         no_series = {"seriess": []}
         with mock.patch.object(fred, "_request", side_effect=_request_stub(meta=no_series)):
             out = fred.get_macro_data("totally_unknown_xyz", "2025-09-30", 30)
-        self.assertIn("not found", out)
+        self.assertIn("找不到 FRED 序列", out)
 
     def test_long_series_is_truncated_but_change_uses_full_range(self):
         # Build > MAX_ROWS observations deterministically.
@@ -130,9 +130,9 @@ class FredFormattingTests(unittest.TestCase):
         }
         with mock.patch.object(fred, "_request", side_effect=_request_stub(obs=obs)):
             out = fred.get_macro_data("unemployment", "2025-12-31", 365)
-        self.assertIn(f"most recent {fred.MAX_ROWS}", out)
+        self.assertIn(f"显示最近 {fred.MAX_ROWS} 条", out)
         # change-over-window must reference the true first (0) and last value
-        self.assertIn("from 0 ", out)
+        self.assertIn("从 0（", out)
         body_rows = [ln for ln in out.splitlines() if ln.startswith("| 2025")]
         self.assertEqual(len(body_rows), fred.MAX_ROWS)
 

@@ -62,7 +62,7 @@ class TestRouteToVendorSentinel(unittest.TestCase):
         self.assertIn("NO_DATA_AVAILABLE", result)
         self.assertIn("XAUUSD+", result)
         self.assertIn("GC=F", result)
-        self.assertIn("Do not estimate", result)
+        self.assertIn("不要估算或虚构数值", result)
 
     def test_unconfigured_fallback_does_not_mask_no_data(self):
         # When the primary vendor reports no data and the fallback is simply

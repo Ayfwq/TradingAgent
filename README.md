@@ -123,7 +123,7 @@ flowchart TD
 | `conditional_logic.py` | 三类路由：分析师工具循环、多空辩论循环、风险辩论循环。                                     |
 | `analyst_execution.py` | 把分析师 wire key 映射成节点名、消息通道、报告字段和完成标记。                             |
 | `propagation.py`       | 创建初始`AgentState`，设置 `recursion_limit` 和 stream 参数。                          |
-| `checkpointer.py`      | 每 ticker SQLite 检查点、thread id、查询和清除。                                           |
+| `checkpointer.py`      | PostgreSQL 检查点、thread id、查询和清除。                                                   |
 | `reflection.py`        | 在历史收益已知后，让 quick LLM 生成简短复盘。                                              |
 | `signal_processing.py` | 从 Portfolio Manager Markdown 中确定性解析五档评级，不再调用 LLM。                         |
 
@@ -151,7 +151,7 @@ report = graph.save_reports(final_state, "600519.SS")
 
 ```text
 解析旧的 pending 决策
-→ 可选地用 SqliteSaver 重新 compile 图
+→ 可选地用 PostgreSQL PostgresSaver 重新 compile 图
 → 读取长期记忆
 → 解析 instrument identity
 → 创建初始 AgentState
@@ -686,14 +686,14 @@ Graph 创建 deep/quick 两个逻辑客户端，但共享同一个同步 `httpx.
 
 生命周期：节点执行时持续更新；成功完成后写入状态 JSON；未开启 checkpoint 时进程崩溃会丢失未落盘部分。
 
-### 12.2 可恢复执行记忆：SQLite Checkpoint
+### 12.2 可恢复执行记忆：PostgreSQL Checkpoint
 
 作用域：同 ticker、日期和图形态签名。
 
-数据库路径：
+数据库：
 
 ```text
-<data_cache_dir>/checkpoints/<safe_ticker>.db
+由 TRADINGAGENTS_CHECKPOINT_DATABASE_URL 指向的 PostgreSQL
 ```
 
 `thread_id` 由以下内容的 SHA-256 前 16 位得到：
@@ -707,7 +707,7 @@ ticker + date + layout + selected analysts
 
 ```mermaid
 flowchart LR
-    A[compile with SqliteSaver] --> B[每个节点后保存 State]
+    A[compile with PostgresSaver] --> B[每个节点后保存 State]
     B --> C{运行结果}
     C -->|异常| D[保留 checkpoint]
     D --> E[同 thread_id 再次 propagate]
@@ -788,7 +788,7 @@ sequenceDiagram
 | AKShare        | `_ak_retry`，并用 `RLock` 串行保护 | 默认额外 2 次                      | 返回无数据/降级或抛错，依具体方法 |
 | Reddit         | 429 按 Retry-After 退避一次            | 1 次                               | 降级到 RSS 或 unavailable 文本    |
 | StockTwits     | 短超时、捕获网络/解析失败              | 不做长重试                         | 返回 unavailable 文本             |
-| LangGraph      | SQLite checkpoint                      | 每节点保存                         | 异常保留，下次同签名续跑          |
+| LangGraph      | PostgreSQL checkpoint                  | 每节点保存                         | 异常保留，下次同签名续跑          |
 | 长期 Memory    | pending 结果未来再次结算               | 每次同 ticker 运行尝试             | 无价格则保持 pending，下次再试    |
 
 ### 13.2 哪些失败会继续，哪些会停止
@@ -816,7 +816,7 @@ sequenceDiagram
 
 ```text
 第一次运行：节点 A ✓ → 节点 B ✓ → 节点 C ✗
-SQLite：保存到 B 之后的 checkpoint
+PostgreSQL：保存到 B 之后的 checkpoint
 调用方收到异常
 
 修复网络/密钥/限流问题
@@ -825,7 +825,7 @@ LangGraph 读取 checkpoint，继续未完成任务
 成功后本次 thread 的 checkpoint 被删除
 ```
 
-如果想强制从头开始，可调用 `clear_checkpoint()` 或 `clear_all_checkpoints()` 清理全部 ticker DB。清理是不可恢复操作，使用前应确认目标。
+如果想强制从头开始，可调用 `clear_checkpoint()` 清理对应 ticker/date 的 PostgreSQL 线程。清理是不可恢复操作，使用前应确认目标。
 
 ## 14. 输出、日志和可观测性
 
@@ -912,7 +912,9 @@ Web 和脚本入口都通过 `propagate()` 执行完整的记忆读取、检查�
 
 ### 15.6 Checkpoint 是 opt-in，且成功即删除
 
-默认 `checkpoint_enabled=False`。它是崩溃恢复设施，不是运行历史数据库；成功结束后当前 thread 的 rows 会被删除。
+默认 `checkpoint_enabled=False`。启用时必须配置
+`TRADINGAGENTS_CHECKPOINT_DATABASE_URL`（或复用 `NEWS_DATABASE_URL`）；它是崩溃恢复设施，
+不是运行历史数据库，成功结束后当前 thread 的 rows 会被删除。
 
 ### 15.7 Stream mode 是 `values`
 

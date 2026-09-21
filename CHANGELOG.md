@@ -168,8 +168,8 @@ TradingAgents 的所有重要变更都记录在此。
   `response_schema`，Anthropic 使用工具调用，OpenAI 兼容供应商使用函数调用）。
   渲染辅助函数保留现有 Markdown 形状，确保记忆日志、CLI 显示和保存报告不变。（#434）
 - **LangGraph 检查点恢复**——通过 `--checkpoint` 选择启用。每个节点后保存状态，
-  崩溃或中断时可从最后一个成功步骤恢复。每个代码的 SQLite 数据库位于
-  `~/.tradingagents/cache/checkpoints/`；`--clear-checkpoints` 可重置它们。（#594）
+  崩溃或中断时可从最后一个成功步骤恢复。当前统一保存于 PostgreSQL；旧版本曾使用
+  每个代码独立的本地文件数据库，`--clear-checkpoints` 可重置它们。（#594）
 - **持久化决策日志**替代每个智能体的 BM25 记忆。决策会在 `propagate()` 末尾自动保存；
   下一次同代码运行会用实际收益、相对 SPY 的 Alpha 和一段反思更新之前的待处理条目。
   可通过 `TRADINGAGENTS_MEMORY_LOG_PATH` 覆盖路径；可选的

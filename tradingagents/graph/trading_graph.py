@@ -59,6 +59,8 @@ def _coerce_max_retries(value):
     """
     if isinstance(value, bool):
         raise ValueError(f"llm_max_retries 必须是整数，不能是布尔值：{value!r}")
+    if isinstance(value, float):
+        raise ValueError(f"llm_max_retries 必须是整数，实际为 {value!r}")
     try:
         n = int(value)
     except (TypeError, ValueError) as exc:
@@ -477,7 +479,7 @@ class TradingAgentsGraph:
 
         ``asset_type`` 在股票流水线（默认）和 #567 提供的加密货币流水线（``"crypto"``）
         之间选择；Web 会根据股票代码自动检测，程序调用方显式传入。当配置中设置
-        ``checkpoint_enabled`` 时，图会使用每个代码独立的 SqliteSaver 重新编译，
+        ``checkpoint_enabled`` 时，图会使用 PostgreSQL 中每个代码独立的线程重新编译，
         使崩溃运行可以在下次使用相同代码+日期调用时从最后一个成功节点恢复。
         """
         self.ticker = company_name
@@ -492,13 +494,13 @@ class TradingAgentsGraph:
         # 如果用户启用检查点，则使用检查点重新编译。
         if self.config.get("checkpoint_enabled"):
             self._checkpointer_ctx = get_checkpointer(
-                self.config["data_cache_dir"], company_name
+                self.config.get("checkpoint_database_url")
             )
             saver = self._checkpointer_ctx.__enter__()
             self.graph = self.workflow.compile(checkpointer=saver)
 
             step = checkpoint_step(
-                self.config["data_cache_dir"], company_name, str(trade_date),
+                self.config.get("checkpoint_database_url"), company_name, str(trade_date),
                 self._run_signature(asset_type),
             )
             if step is not None:
@@ -615,7 +617,7 @@ class TradingAgentsGraph:
         # 成功完成后清除检查点，避免保留过期状态。
         if self.config.get("checkpoint_enabled"):
             clear_checkpoint(
-                self.config["data_cache_dir"], company_name, str(trade_date),
+                self.config.get("checkpoint_database_url"), company_name, str(trade_date),
                 self._run_signature(asset_type),
             )
             logger.debug("已清除 %s（%s）的检查点", company_name, trade_date)

@@ -136,12 +136,12 @@ def test_tool_using_analysts_keep_their_date_guidance():
     import tradingagents.agents.analysts.market_analyst as market
     import tradingagents.agents.analysts.news_analyst as news
     for module in (market, news):
-        assert "tool-call date ranges" in inspect.getsource(module)
+        assert "工具调用日期范围" in inspect.getsource(module)
 
 
 @pytest.mark.unit
 def test_constraint_text_is_unambiguous():
-    assert "do not call external tools" in NO_EXTERNAL_TOOLS.lower()
+    assert "不要调用外部工具" in NO_EXTERNAL_TOOLS
     # No template braces: it is embedded in ChatPromptTemplate strings, where
     # braces would be parsed as input variables.
     assert "{" not in NO_EXTERNAL_TOOLS and "}" not in NO_EXTERNAL_TOOLS

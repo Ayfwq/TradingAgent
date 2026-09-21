@@ -105,9 +105,19 @@ class ModelProfilePayload(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     template: str = Field(default="custom", max_length=40)
     base_url: str = Field(min_length=8, max_length=300)
-    quick_model: str = Field(min_length=1, max_length=160)
+    quick_model: str = Field(default="", max_length=160)
     deep_model: str = Field(default="", max_length=160)
     api_key: str | None = Field(default=None, max_length=1000)
+    discovered_models: list[str] | None = Field(default=None, max_length=300)
+
+
+class ModelConnectionPayload(BaseModel):
+    """尚未保存的模型连接信息，用于先发现模型、再完成配置。"""
+
+    profile_id: str | None = Field(default=None, max_length=64)
+    base_url: str = Field(min_length=8, max_length=300)
+    api_key: str | None = Field(default=None, max_length=1000)
+    model: str = Field(default="", max_length=160)
 
 
 app = FastAPI(
@@ -450,6 +460,65 @@ async def test_model_profile(profile_id: str) -> dict:
     except requests.RequestException as exc:
         logger.warning("模型配置测试失败：%s：%s", profile_id, exc)
         raise HTTPException(status_code=502, detail="模型连接失败，请检查 Endpoint、模型名、密钥或账户余额") from exc
+
+
+def _model_request_error(exc: requests.RequestException, action: str) -> str:
+    """把供应商 HTTP 错误转换为可操作、但不泄露凭据的提示。"""
+    response = getattr(exc, "response", None)
+    if response is None:
+        return f"{action}失败：无法连接 Endpoint，请检查地址、网络或代理设置"
+    status = response.status_code
+    messages = {
+        401: "API Key 无效或已过期",
+        402: "账户余额不足或计费未开通",
+        403: "API Key 没有访问该服务或模型的权限",
+        404: "Endpoint 路径或模型名不存在",
+        429: "请求过于频繁或额度已用尽",
+    }
+    message = messages.get(status, f"服务商返回 HTTP {status}")
+    try:
+        body = response.json()
+        provider_message = body.get("error", {}).get("message") if isinstance(body, dict) else None
+        if provider_message:
+            message = f"{message}（{str(provider_message)[:240]}）"
+    except (ValueError, AttributeError):
+        pass
+    return f"{action}失败：{message}"
+
+
+@app.post("/api/model-connections/discover")
+async def discover_model_connection(payload: ModelConnectionPayload) -> dict:
+    """无需先保存配置，直接使用表单里的 Endpoint 和密钥读取模型。"""
+    try:
+        return await asyncio.to_thread(
+            model_profile_service.discover_connection,
+            payload.base_url,
+            payload.api_key,
+            payload.profile_id,
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except requests.RequestException as exc:
+        logger.warning("发现未保存连接的模型失败：%s", exc)
+        raise HTTPException(status_code=502, detail=_model_request_error(exc, "发现模型")) from exc
+
+
+@app.post("/api/model-connections/test")
+async def test_model_connection(payload: ModelConnectionPayload) -> dict:
+    """模型为空时验证 /models；选择模型后再验证对话能力。"""
+    try:
+        return await asyncio.to_thread(
+            model_profile_service.test_connection,
+            payload.base_url,
+            payload.api_key,
+            payload.model,
+            payload.profile_id,
+        )
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except requests.RequestException as exc:
+        logger.warning("测试未保存的模型连接失败：%s", exc)
+        raise HTTPException(status_code=502, detail=_model_request_error(exc, "测试连接")) from exc
 
 
 @app.post("/api/analyses", status_code=202)

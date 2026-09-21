@@ -42,8 +42,8 @@ class TestStockTwitsResilience:
     def test_transport_errors_return_placeholder(self, exc):
         with patch.object(stocktwits, "urlopen", return_value=_raise(exc)):
             out = stocktwits.fetch_stocktwits_messages("NVDA")
-        assert "unavailable" in out.lower()
-        assert out.startswith("<stocktwits unavailable")
+        assert "不可用" in out
+        assert out.startswith("<StockTwits 不可用")
 
 
 @pytest.mark.unit

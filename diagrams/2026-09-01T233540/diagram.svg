@@ -118,7 +118,7 @@
   <text x="358" y="1000" fill="#91b1ce" font-size="14">短期：AgentState / 消息；长期：Markdown 决策日志与反思</text>
   <path d="M112 1060 L154 1028 L196 1060 L238 1028 L280 1060" fill="none" stroke="#f2c85b" stroke-width="4"/>
   <text x="358" y="1057" fill="#f0f8ff" font-size="20" font-weight="700">失败恢复与边界</text>
-  <text x="358" y="1085" fill="#91b1ce" font-size="13">SDK retry · 数据源 retry/fallback · SQLite checkpoint · recursion limit</text>
+  <text x="358" y="1085" fill="#91b1ce" font-size="13">SDK retry · 数据源 retry/fallback · PostgreSQL checkpoint · recursion limit</text>
 
   <text x="90" y="1177" fill="#647f9e" font-size="13">依据当前代码生成 · “可调用工具”以 Agent bind_tools 为准</text>
 </svg>

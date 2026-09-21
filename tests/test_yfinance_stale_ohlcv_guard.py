@@ -46,7 +46,7 @@ class StaleGuardUnitTests(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("2025-06-11", msg)
         self.assertIn("2026-06-11", msg)
-        self.assertIn("stale", msg)
+        self.assertIn("数据已过期", msg)
 
     def test_empty_frame_is_left_to_caller(self):
         # Empty is a no-data condition handled elsewhere, not a staleness one.

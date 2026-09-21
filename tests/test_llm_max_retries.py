@@ -31,14 +31,14 @@ def test_coerce_rejects_negative(bad):
 @pytest.mark.unit
 @pytest.mark.parametrize("bad", [True, False])
 def test_coerce_rejects_booleans(bad):
-    with pytest.raises(ValueError, match="boolean"):
+    with pytest.raises(ValueError, match="布尔值"):
         _coerce_max_retries(bad)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("bad", ["abc", "1.5", None])
+@pytest.mark.parametrize("bad", ["abc", "1.5", 1.5, None])
 def test_coerce_rejects_non_integers(bad):
-    with pytest.raises(ValueError, match="integer"):
+    with pytest.raises(ValueError, match="整数"):
         _coerce_max_retries(bad)
 
 

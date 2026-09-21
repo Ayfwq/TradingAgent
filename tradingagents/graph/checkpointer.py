@@ -1,31 +1,28 @@
-"""支持可恢复分析运行的 LangGraph 检查点。
-
-每个股票代码使用独立的 SQLite 数据库，避免并发代码之间互相争用。
-"""
+"""支持可恢复分析运行的 LangGraph PostgreSQL 检查点。"""
 
 from __future__ import annotations
 
 import hashlib
-import logging
-import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
-from pathlib import Path
 
-from langgraph.checkpoint.sqlite import SqliteSaver
-
-from tradingagents.dataflows.utils import safe_ticker_component
-
-logger = logging.getLogger(__name__)
+from langgraph.checkpoint.postgres import PostgresSaver
 
 
-def _db_path(data_dir: str | Path, ticker: str) -> Path:
-    """返回指定股票代码的 SQLite 检查点数据库路径。"""
-    # 拒绝会逃逸出检查点目录的股票代码。
-    safe = safe_ticker_component(ticker).upper()
-    p = Path(data_dir) / "checkpoints"
-    p.mkdir(parents=True, exist_ok=True)
-    return p / f"{safe}.db"
+def _require_database_url(database_url: str | None) -> str:
+    """校验 Checkpoint 数据库配置，禁止回退到本地文件数据库。"""
+    if not database_url or not str(database_url).strip():
+        raise RuntimeError(
+            "未配置 TRADINGAGENTS_CHECKPOINT_DATABASE_URL，"
+            "Checkpoint 必须使用 PostgreSQL，不能回退到本地文件数据库。"
+        )
+    normalized = str(database_url).strip()
+    if not normalized.startswith(("postgresql://", "postgres://")):
+        raise ValueError(
+            "TRADINGAGENTS_CHECKPOINT_DATABASE_URL 必须是 PostgreSQL 连接串，"
+            f"实际为：{normalized.split('://', 1)[0]}://..."
+        )
+    return normalized
 
 
 def thread_id(ticker: str, date: str, signature: str = "") -> str:
@@ -41,69 +38,44 @@ def thread_id(ticker: str, date: str, signature: str = "") -> str:
 
 
 @contextmanager
-def get_checkpointer(data_dir: str | Path, ticker: str) -> Generator[SqliteSaver, None, None]:
-    """上下文管理器：返回由每个股票代码独立数据库支持的 SqliteSaver。"""
-    db = _db_path(data_dir, ticker)
-    conn = sqlite3.connect(str(db), check_same_thread=False)
-    try:
-        saver = SqliteSaver(conn)
+def get_checkpointer(database_url: str | None) -> Generator[PostgresSaver, None, None]:
+    """返回由 PostgreSQL 支持的 LangGraph Checkpoint saver。
+
+    ``setup()`` 是幂等的，首次运行会创建 PostgreSQL 所需的检查点表和迁移。
+    """
+    uri = _require_database_url(database_url)
+    with PostgresSaver.from_conn_string(uri) as saver:
         saver.setup()
-        logger.debug("已为 %s 打开检查点：%s", ticker, db)
         yield saver
-    finally:
-        conn.close()
-        logger.debug("已关闭 %s 的检查点", ticker)
 
 
-def has_checkpoint(data_dir: str | Path, ticker: str, date: str, signature: str = "") -> bool:
+def has_checkpoint(database_url: str | None, ticker: str, date: str, signature: str = "") -> bool:
     """检查指定股票代码+日期是否存在可恢复检查点。"""
-    return checkpoint_step(data_dir, ticker, date, signature) is not None
+    return checkpoint_step(database_url, ticker, date, signature) is not None
 
 
-def checkpoint_step(data_dir: str | Path, ticker: str, date: str, signature: str = "") -> int | None:
+def checkpoint_step(
+    database_url: str | None,
+    ticker: str,
+    date: str,
+    signature: str = "",
+) -> int | None:
     """返回最新检查点的步骤编号，不存在时返回 None。"""
-    db = _db_path(data_dir, ticker)
-    if not db.exists():
-        logger.debug("%s 没有检查点数据库：%s", ticker, db)
+    tid = thread_id(ticker, date, signature)
+    with get_checkpointer(database_url) as saver:
+        checkpoint = saver.get_tuple({"configurable": {"thread_id": tid}})
+    if checkpoint is None:
         return None
+    return checkpoint.metadata.get("step")
+
+
+def clear_checkpoint(
+    database_url: str | None,
+    ticker: str,
+    date: str,
+    signature: str = "",
+) -> None:
+    """删除指定股票代码+日期对应的 PostgreSQL 检查点线程。"""
     tid = thread_id(ticker, date, signature)
-    with get_checkpointer(data_dir, ticker) as saver:
-        config = {"configurable": {"thread_id": tid}}
-        cp = saver.get_tuple(config)
-        if cp is None:
-            logger.debug("%s 在 %s 没有检查点元组（tid=%s）", ticker, date, tid)
-            return None
-        step = cp.metadata.get("step")
-        logger.info("找到 %s 在 %s 的检查点，步骤为 %s", ticker, date, step)
-        return step
-
-
-def clear_all_checkpoints(data_dir: str | Path) -> int:
-    """删除所有检查点数据库，并返回删除的文件数。"""
-    cp_dir = Path(data_dir) / "checkpoints"
-    if not cp_dir.exists():
-        return 0
-    dbs = list(cp_dir.glob("*.db"))
-    for db in dbs:
-        db.unlink()
-    if dbs:
-        logger.info("已从 %s 清除 %d 个检查点数据库", cp_dir, len(dbs))
-    return len(dbs)
-
-
-def clear_checkpoint(data_dir: str | Path, ticker: str, date: str, signature: str = "") -> None:
-    """通过删除线程记录，清除指定股票代码+日期的检查点。"""
-    db = _db_path(data_dir, ticker)
-    if not db.exists():
-        return
-    tid = thread_id(ticker, date, signature)
-    conn = sqlite3.connect(str(db))
-    try:
-        for table in ("writes", "checkpoints"):
-            conn.execute(f"DELETE FROM {table} WHERE thread_id = ?", (tid,))
-        conn.commit()
-        logger.info("已清除 %s 在 %s 的检查点（tid=%s）", ticker, date, tid)
-    except sqlite3.OperationalError:
-        logger.warning("清除 %s 在 %s 的检查点失败", ticker, date)
-    finally:
-        conn.close()
+    with get_checkpointer(database_url) as saver:
+        saver.delete_thread(tid)

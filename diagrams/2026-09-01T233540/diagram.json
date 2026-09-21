@@ -2857,7 +2857,7 @@
           "width": 437,
           "height": 17.15771484375,
           "text": {
-            "text": "SDK retry · 数据源 retry/fallback · SQLite checkpoint · recursion limit",
+            "text": "SDK retry · 数据源 retry/fallback · PostgreSQL checkpoint · recursion limit",
             "font_weight": "regular",
             "font_size": 13,
             "horizontal_align": "left",

@@ -7,6 +7,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradingagents_local_change_me}
     volumes:
       - tradingagents_postgres_data:/var/lib/postgresql/data
+    ports:
+      # 供本机直接运行 uvicorn 时复用同一个 PostgreSQL；仅监听回环地址。
+      - "127.0.0.1:${TRADINGAGENTS_POSTGRES_PORT:-15432}:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -26,6 +29,7 @@ services:
       TRADINGAGENTS_LOG_DIR: /data/runtime-logs/web
       TRADINGAGENTS_LOG_RETENTION_DAYS: "3"
       NEWS_DATABASE_URL: ${NEWS_DATABASE_URL:-postgresql://${POSTGRES_USER:-tradingagents}:${POSTGRES_PASSWORD:-tradingagents_local_change_me}@postgres:5432/${POSTGRES_DB:-tradingagents}}
+      TRADINGAGENTS_CHECKPOINT_DATABASE_URL: ${TRADINGAGENTS_CHECKPOINT_DATABASE_URL:-postgresql://${POSTGRES_USER:-tradingagents}:${POSTGRES_PASSWORD:-tradingagents_local_change_me}@postgres:5432/${POSTGRES_DB:-tradingagents}}
     depends_on:
       postgres:
         condition: service_healthy

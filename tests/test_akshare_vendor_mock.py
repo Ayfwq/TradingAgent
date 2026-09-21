@@ -98,7 +98,7 @@ class TestDegradation:
 
         monkeypatch.setattr("akshare.stock_financial_analysis_indicator", bad)
         out = akv.get_fundamentals_akshare("600519.SS", "2026-08-17")
-        assert isinstance(out, str) and "Error" in out
+        assert isinstance(out, str) and "获取" in out and "失败" in out
 
     def test_news_failure_is_string(self, monkeypatch):
         def bad(*a, **k):
@@ -110,7 +110,7 @@ class TestDegradation:
 
     def test_non_ashare_returns_graceful_message(self):
         out = akv.get_fundamentals_akshare("NVDA", "2026-08-17")
-        assert "unavailable" in out.lower()
+        assert "无法获取" in out and "A 股" in out
 
 
 class TestSpecialContextTools:
@@ -136,7 +136,7 @@ class TestSpecialContextTools:
 
         monkeypatch.setattr("akshare.stock_lhb_detail_em", lambda **k: pd.DataFrame({"代码": ["000001"]}))
         out2 = akv.get_lhb_context("600519.SS", "2026-08-17")
-        assert "No LHB" in out2
+        assert "没有龙虎榜记录" in out2
 
     def test_limit_up_pool(self, monkeypatch):
         def fake_pool(date):
@@ -154,10 +154,10 @@ class TestSpecialContextTools:
 
         monkeypatch.setattr("akshare.stock_zt_pool_em", fake_pool)
         out = akv.get_limit_up_context("600519.SS", "2026-08-17")
-        assert "NOT on today" in out and "Total limit-up" in out
+        assert "今日不在涨停池中" in out and "今日涨停股票总数" in out
 
         out2 = akv.get_limit_up_context("002820.SZ", "2026-08-17")
-        assert "IS LIMIT-UP" in out2
+        assert "今日涨停" in out2
 
     def test_sector_context(self, monkeypatch):
         def fake_spot(indicator):
@@ -177,7 +177,7 @@ class TestSpecialContextTools:
         out = akv.get_sector_context("600519.SS", "2026-08-17")
         assert "机械行业" in out
         out2 = akv.get_sector_context("600860.SS", "2026-08-17")
-        assert "IS the leader stock" in out2
+        assert "龙头股" in out2
 
     def test_earnings_forecast(self, monkeypatch):
         def fake_yjyg(date):

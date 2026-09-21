@@ -32,9 +32,9 @@ class TestVerifiedSnapshot:
         monkeypatch.setattr(validator, "load_ohlcv", lambda s, d: data)
 
         snap = validator.build_verified_market_snapshot("COF", "2026-05-13")
-        assert "Verified market data snapshot for COF" in snap
-        assert "Requested analysis date: 2026-05-13" in snap
-        assert "Latest trading row used: 2026-05-13" in snap
+        assert "COF 的已校验市场数据快照" in snap
+        assert "请求的分析日期：2026-05-13" in snap
+        assert "使用的最新交易行：2026-05-13" in snap
         assert "999.00" not in snap          # future row excluded
         assert "boll_lb" in snap             # indicators present
 
@@ -42,8 +42,8 @@ class TestVerifiedSnapshot:
         monkeypatch.setattr(validator, "load_ohlcv", lambda s, d: _sample_ohlcv())
         # 2026-05-16 is a Saturday; latest row should be Fri 2026-05-15
         snap = validator.build_verified_market_snapshot("COF", "2026-05-16")
-        assert "Latest trading row used: 2026-05-15" in snap
-        assert "Recent verified closes" in snap
+        assert "使用的最新交易行：2026-05-15" in snap
+        assert "近期已校验收盘价" in snap
 
     def test_raises_when_no_rows_on_or_before_date(self, monkeypatch):
         monkeypatch.setattr(validator, "load_ohlcv", lambda s, d: _sample_ohlcv())
@@ -73,4 +73,4 @@ class TestTool:
         out = get_verified_market_snapshot.invoke(
             {"symbol": "COF", "curr_date": "2026-05-20"}
         )
-        assert "Verified market data snapshot for COF" in out
+        assert "COF 的已校验市场数据快照" in out
