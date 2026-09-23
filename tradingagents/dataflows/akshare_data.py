@@ -259,30 +259,90 @@ def _strip_ashare_suffix(ticker: str) -> str:
     return symbol[2:] if symbol[:2] in ("sh", "sz", "bj") else symbol
 
 
+def _filter_financial_frame_by_date(df: pd.DataFrame, curr_date: str | None) -> pd.DataFrame:
+    """过滤报告日期，避免基本面数据在回测中泄漏未来信息。
+
+    东方财富的 A/H/US 接口使用的日期列名称并不完全一致；这个小的适配层
+    统一处理常见列名，同时保留无法解析的供应商数据（供应商有时会把报告期
+    编码放在非日期列中）。
+    """
+    if df is None or df.empty or not curr_date:
+        return df
+    cutoff = pd.Timestamp(curr_date)
+    for name in ("REPORT_DATE", "STD_REPORT_DATE", "报告日期", "报告期", "公告日期"):
+        if name not in df.columns:
+            continue
+        parsed = pd.to_datetime(df[name], errors="coerce")
+        if parsed.notna().any():
+            return df.loc[parsed <= cutoff].copy()
+    return df
+
+
+def _render_financial_frame(
+    ticker: str,
+    frame: pd.DataFrame,
+    title: str,
+    source: str,
+    curr_date: str | None = None,
+    max_rows: int = 80,
+) -> str:
+    """将 akshare 财务 DataFrame 渲染成工具统一使用的 CSV 文本。"""
+    if frame is None or frame.empty:
+        raise NoMarketDataError(ticker, ticker, f"未返回{title}数据")
+    frame = _filter_financial_frame_by_date(frame, curr_date)
+    if frame.empty:
+        raise NoMarketDataError(ticker, ticker, f"截至 {curr_date} 未返回{title}数据")
+    recent = frame.head(max_rows)
+    header = f"# {ticker} 的{title}（akshare/{source}）\n"
+    header += f"# 数据获取时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    return header + recent.to_csv(index=False)
+
+
 def get_fundamentals_akshare(ticker: str, curr_date: str = None) -> str:
-    """从新浪财务指标表获取公司基本面概览。"""
+    """从 akshare 获取公司基本面概览，覆盖 A 股、港股和美股。
+
+    A 股沿用新浪财务指标；港股/美股使用东方财富 F10 主要指标接口。这样
+    在无法访问 Yahoo 的环境中，AAPL、0700.HK 等代码仍有国内可用数据源。
+    """
     logger.debug("已调用 get_fundamentals_akshare：%s，curr_date=%s", ticker, curr_date)
-    code = _strip_ashare_suffix(ticker)
-    if code is None:
+    market, code = _to_akshare_symbol(ticker)
+    if market is None:
         return (
-            f"通过 akshare 无法获取 '{ticker}' 的基本面数据（仅支持 A 股）。"
+            f"通过 akshare 无法获取 '{ticker}' 的基本面数据（不支持的市场代码）。"
             "请继续分析其他数据。"
         )
     try:
         import akshare as ak
 
-        start_year = str(max(2020, int(pd.Timestamp(curr_date or datetime.now()).year) - 3))
-        df = _ak_retry(lambda: ak.stock_financial_analysis_indicator(symbol=code, start_year=start_year))
-        if df is None or df.empty:
-            logger.warning("akshare 未返回 %s 的基本面数据（%s）", ticker, code)
-            raise NoMarketDataError(ticker, code, "未返回基本面数据")
+        if market == "ashare":
+            start_year = str(max(2020, int(pd.Timestamp(curr_date or datetime.now()).year) - 3))
+            df = _ak_retry(
+                lambda: ak.stock_financial_analysis_indicator(
+                    symbol=code[2:], start_year=start_year
+                )
+            )
+            result = _render_financial_frame(ticker, df, "公司基本面", "新浪", curr_date, 8)
+        elif market == "hk":
+            df = _ak_retry(
+                lambda: ak.stock_financial_hk_analysis_indicator_em(
+                    symbol=code, indicator="报告期"
+                )
+            )
+            result = _render_financial_frame(ticker, df, "公司基本面", "东方财富港股", curr_date, 12)
+        else:  # us
+            # 东方财富对 BRK.B / BRK-B 等类别股代码使用 BRK_B；普通美股
+            # 代码保持原样。Yahoo 常见的连字符格式和东方财富的下划线格式
+            # 在这里统一，避免类别股被误判为“无数据”。
+            em_code = code.replace(".", "_").replace("-", "_")
+            df = _ak_retry(
+                lambda: ak.stock_financial_us_analysis_indicator_em(
+                    symbol=em_code, indicator="年报"
+                )
+            )
+            result = _render_financial_frame(ticker, df, "公司基本面", "东方财富美股", curr_date, 8)
 
-        # 最多保留最近 8 个报告期（这里报告期以行表示）。全部渲染会消耗过多 Token。
-        recent = df.head(8)
-        header = f"# {code} 的公司基本面（akshare/新浪，A 股）\n"
-        header += f"# 数据获取时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        logger.debug("akshare 为 %s 返回 %d 行基本面数据", ticker, len(recent))
-        return header + recent.to_csv(index=False)
+        logger.debug("akshare 为 %s 返回基本面数据", ticker)
+        return result
     except NoMarketDataError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -290,41 +350,73 @@ def get_fundamentals_akshare(ticker: str, curr_date: str = None) -> str:
         return f"通过 akshare 获取 {ticker} 的基本面失败：{exc}"
 
 
-def _financial_abstract_report(ticker: str, curr_date: str | None, section: str) -> str:
-    """将新浪财务摘要（指标表）渲染为报告。
+def _financial_abstract_report(
+    ticker: str,
+    curr_date: str | None,
+    section: str,
+    freq: str = "quarterly",
+) -> str:
+    """将 A/H/US 财务报表 DataFrame 渲染为统一报告。
 
-    ``section`` 仅用于标记报告；摘要表包含资产负债表、利润表和现金流量表的关键指标。
+    A 股使用新浪摘要表，港股/美股使用东方财富三大报表接口；``section``
+    仅用于选择报表类型和标记报告。
     """
     logger.debug("_financial_abstract_report called for %s section=%s curr_date=%s", ticker, section, curr_date)
-    code = _strip_ashare_suffix(ticker)
-    if code is None:
+    market, code = _to_akshare_symbol(ticker)
+    if market is None:
         return (
-            f"通过 akshare 无法获取 '{ticker}' 的{section}（仅支持 A 股）。"
+            f"通过 akshare 无法获取 '{ticker}' 的{section}（不支持的市场代码）。"
             "请继续分析其他数据。"
         )
     try:
         import akshare as ak
 
-        df = _ak_retry(lambda: ak.stock_financial_abstract(symbol=code))
-        if df is None or df.empty:
-            logger.warning("akshare 未返回 %s 的 %s 数据（%s）", ticker, section, code)
-            raise NoMarketDataError(ticker, code, "未返回财务摘要")
+        if market == "ashare":
+            df = _ak_retry(lambda: ak.stock_financial_abstract(symbol=code[2:]))
 
-        # 列名是报告期（例如 20251231）；保留 curr_date 及之前的日期以防止前视，
-        # 并按最新在前排序。
-        period_cols = [c for c in df.columns if str(c).isdigit()]
-        if curr_date:
-            cutoff = pd.Timestamp(curr_date)
-            period_cols = [c for c in period_cols if pd.Timestamp(str(c)) <= cutoff]
-        period_cols = sorted(period_cols, reverse=True)[:4]
+            if df is None or df.empty:
+                logger.warning("akshare 未返回 %s 的 %s 数据（%s）", ticker, section, code)
+                raise NoMarketDataError(ticker, code, "未返回财务摘要")
 
-        keep = [c for c in df.columns if c not in period_cols] + period_cols
-        table = df[keep].head(60)  # 限制行数，控制 Token 使用量。
+            # A 股摘要把报告期作为列名（例如 20251231），保留 curr_date 及之前
+            # 的日期以防止前视，并按最新在前排序。
+            period_cols = [c for c in df.columns if str(c).isdigit()]
+            if curr_date:
+                cutoff = pd.Timestamp(curr_date)
+                period_cols = [c for c in period_cols if pd.Timestamp(str(c)) <= cutoff]
+            period_cols = sorted(period_cols, reverse=True)[:4]
+            keep = [c for c in df.columns if c not in period_cols] + period_cols
+            table = df[keep].head(60)
+            header = f"# {code[2:]} 的{section}数据（akshare/新浪，A 股）\n"
+            header += f"# 数据获取时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            return header + table.to_csv(index=False)
 
-        header = f"# {code} 的{section}数据（akshare/新浪，A 股）\n"
-        header += f"# 数据获取时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        logger.debug("akshare 为 %s 返回 %d 行 %s 数据", ticker, len(table), section)
-        return header + table.to_csv(index=False)
+        report_names = {
+            "Balance Sheet": "资产负债表",
+            "Cash Flow": "现金流量表",
+            "Income Statement": "利润表" if market == "hk" else "综合损益表",
+        }
+        report_name = report_names[section]
+        if market == "hk":
+            indicator = "报告期" if str(freq).lower() == "quarterly" else "年度"
+            df = _ak_retry(
+                lambda: ak.stock_financial_hk_report_em(
+                    stock=code, symbol=report_name, indicator=indicator
+                )
+            )
+            source = "东方财富港股"
+        else:  # us
+            indicator = "单季报" if str(freq).lower() == "quarterly" else "年报"
+            df = _ak_retry(
+                lambda: ak.stock_financial_us_report_em(
+                    stock=code.replace(".", "_").replace("-", "_"),
+                    symbol=report_name,
+                    indicator=indicator,
+                )
+            )
+            source = "东方财富美股"
+
+        return _render_financial_frame(ticker, df, section, source, curr_date, 100)
     except NoMarketDataError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -333,15 +425,15 @@ def _financial_abstract_report(ticker: str, curr_date: str | None, section: str)
 
 
 def get_balance_sheet_akshare(ticker: str, freq: str = "quarterly", curr_date: str = None) -> str:
-    return _financial_abstract_report(ticker, curr_date, "Balance Sheet")
+    return _financial_abstract_report(ticker, curr_date, "Balance Sheet", freq)
 
 
 def get_cashflow_akshare(ticker: str, freq: str = "quarterly", curr_date: str = None) -> str:
-    return _financial_abstract_report(ticker, curr_date, "Cash Flow")
+    return _financial_abstract_report(ticker, curr_date, "Cash Flow", freq)
 
 
 def get_income_statement_akshare(ticker: str, freq: str = "quarterly", curr_date: str = None) -> str:
-    return _financial_abstract_report(ticker, curr_date, "Income Statement")
+    return _financial_abstract_report(ticker, curr_date, "Income Statement", freq)
 
 
 # ---------------------------------------------------------------------------
@@ -350,20 +442,27 @@ def get_income_statement_akshare(ticker: str, freq: str = "quarterly", curr_date
 
 
 def get_news_akshare(ticker: str, start_date: str, end_date: str) -> str:
-    """通过东方财富搜索 API（中国大陆可访问）获取指定股票新闻。"""
+    """通过东方财富搜索 API（中国大陆可访问）获取指定股票新闻。
+
+    东方财富搜索接口本身不限制 A 股；将规范化后的 A/HK/US 代码作为
+    关键词查询，因此在 Yahoo 不可达时，三类市场都可以使用同一个国内
+    新闻源。A 股去掉 ``sh/sz/bj`` 前缀，港股使用五位代码，美股保留
+    ticker（例如 ``AAPL``）。
+    """
     logger.debug("已调用 get_news_akshare：%s（%s 至 %s）", ticker, start_date, end_date)
-    code = _strip_ashare_suffix(ticker)
-    if code is None:
+    market, code = _to_akshare_symbol(ticker)
+    if market is None:
         return (
-            f"通过 akshare 未找到 {ticker} 的新闻（按股票代码查询仅支持 A 股）。"
+            f"通过 akshare 未找到 {ticker} 的新闻（不支持的市场代码）。"
         )
+    search_code = code[2:] if market == "ashare" else code
     try:
         import akshare as ak
 
         limit = get_config()["news_article_limit"]
-        df = _ak_retry(lambda: ak.stock_news_em(symbol=code))
+        df = _ak_retry(lambda: ak.stock_news_em(symbol=search_code))
         if df is None or df.empty:
-            logger.warning("akshare 未返回 %s 的新闻（%s）", ticker, code)
+            logger.warning("akshare 未返回 %s 的新闻（%s）", ticker, search_code)
             return f"未找到 {ticker} 的新闻。"
 
         start_dt = pd.Timestamp(start_date)

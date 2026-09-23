@@ -52,7 +52,8 @@ TRADINGAGENTS_WEB_PORT=8000
 中国大陆数据源可使用：
 
 ```dotenv
-TRADINGAGENTS_DATA_VENDORS={"core_stock_apis":"akshare","technical_indicators":"akshare","fundamental_data":"akshare","news_data":"akshare","macro_data":"akshare"}
+# 国内网络推荐使用有序回退链：akshare 优先，Yahoo/Alpha Vantage 备用。
+TRADINGAGENTS_DATA_VENDORS={"core_stock_apis":"akshare,yfinance,alpha_vantage","technical_indicators":"akshare,yfinance","fundamental_data":"akshare,yfinance,alpha_vantage","news_data":"akshare,yfinance,alpha_vantage","macro_data":"akshare,fred"}
 ```
 
 构建并启动：

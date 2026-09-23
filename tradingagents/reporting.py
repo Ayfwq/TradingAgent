@@ -5,8 +5,8 @@
 都会调用它，因此不同调用方式生成相同的磁盘报告树。
 """
 
-import logging
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 

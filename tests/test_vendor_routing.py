@@ -71,6 +71,33 @@ class VendorRoutingTests(unittest.TestCase):
             result = interface.route_to_vendor("get_stock_data", "AAPL", "2026-01-01", "2026-01-10")
         self.assertEqual(result, "AV_DATA")
 
+    def test_failure_text_from_vendor_falls_back(self):
+        # akshare/yfinance compatibility paths historically returned a failure
+        # message instead of raising. The router must not treat that text as a
+        # successful report and stop before the next configured vendor.
+        set_config({"data_vendors": {"fundamental_data": "akshare,yfinance"}})
+        with self._route_method(
+            "get_fundamentals",
+            {
+                "akshare": lambda *a, **k: "通过 akshare 无法获取 'AAPL' 的基本面数据（不支持的市场代码）。",
+                "yfinance": lambda *a, **k: "YF_DATA",
+            },
+        ):
+            result = interface.route_to_vendor("get_fundamentals", "AAPL", "2026-09-23")
+        self.assertEqual(result, "YF_DATA")
+
+    def test_alpha_vantage_error_json_falls_back(self):
+        set_config({"data_vendors": {"fundamental_data": "alpha_vantage,yfinance"}})
+        with self._route_method(
+            "get_fundamentals",
+            {
+                "alpha_vantage": lambda *a, **k: '{"Error Message":"Invalid API call."}',
+                "yfinance": lambda *a, **k: "YF_DATA",
+            },
+        ):
+            result = interface.route_to_vendor("get_fundamentals", "AAPL", "2026-09-23")
+        self.assertEqual(result, "YF_DATA")
+
     def test_primary_error_is_logged_not_masked(self):
         # #989: primary errors + fallback no-data -> NO_DATA, but the failure
         # must be visible in logs (broken primary not hidden).

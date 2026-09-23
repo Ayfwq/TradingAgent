@@ -105,7 +105,7 @@ TRADINGAGENTS_QUICK_THINK_LLM=deepseek-v4-flash
 TRADINGAGENTS_OUTPUT_LANGUAGE=English
 TRADINGAGENTS_MAX_DEBATE_ROUNDS=1
 TRADINGAGENTS_MAX_RISK_ROUNDS=1
-TRADINGAGENTS_DATA_VENDORS={"core_stock_apis":"akshare","technical_indicators":"akshare","fundamental_data":"akshare","news_data":"akshare","macro_data":"akshare"}
+TRADINGAGENTS_DATA_VENDORS={"core_stock_apis":"akshare,yfinance,alpha_vantage","technical_indicators":"akshare,yfinance","fundamental_data":"akshare,yfinance,alpha_vantage","news_data":"akshare,yfinance,alpha_vantage","macro_data":"akshare,fred"}
 NO_PROXY=*        # 绕过间歇性抽风的系统代理(127.0.0.1:7897)，数据层直连国内源
 ```
 
@@ -119,13 +119,15 @@ NO_PROXY=*        # 绕过间歇性抽风的系统代理(127.0.0.1:7897)，数�
 - `dataflows/akshare_data.py`：符号映射（`600519.SS→sh600519`、`000001.SZ→sz000001`、
   `NVDA→us`、`0700.HK→00700`）+ 各数据工具实现
 - `stockstats_utils.load_ohlcv` 新增 `_fetch_ohlcv`：按 `technical_indicators`
-  vendor 链降级（yfinance 失败 → akshare），技术指标与市场验证快照共用
+  vendor 链顺序降级（生产推荐 akshare → yfinance），技术指标与市场验证快照共用
 - `get_indicators` 的 akshare 路由复用 yfinance 的 stockstats 计算（数据来自 akshare）
 - 美股/港股行情走新浪 `stock_us_daily` / `stock_hk_daily`；A 股基本面走新浪
-  `stock_financial_analysis_indicator` + `stock_financial_abstract`；A 股新闻走
+  `stock_financial_analysis_indicator` + `stock_financial_abstract`，港股/美股基本面
+  走东方财富 `stock_financial_hk_*` / `stock_financial_us_*`；A 股、港股和美股新闻统一走
   东财搜索域（`stock_news_em`，与 kline 域不同、未被封锁）；宏观走金十系列；
   A 股内幕/董监高交易走雪球 `stock_inner_trade_xq`（按代码 + 90 天窗口过滤）
-- 美股基本面/个股新闻无稳定国内源 → 优雅降级为提示文本，不中断流水线
+- 供应商返回错误文本时，路由层会将其提升为 `NoMarketDataError`，继续走显式回退链；
+  因此 Yahoo 网络失败不会阻断 akshare/Alpha Vantage 的结果
 - `TRADINGAGENTS_DATA_VENDORS`（JSON）在 `TradingAgentsGraph` 初始化时应用，
   避免 import 期生效泄漏进单元测试（测试断言 yfinance 默认值）
 
@@ -142,7 +144,8 @@ uv run python scripts/run_ashare.py 000001.SZ 2026-08-14
 输出：最终决策（终端）+ 记忆日志（`~/.tradingagents/memory/`）+ 报告树
 （`~/.tradingagents/logs/`）+ 状态日志 JSON。
 
-美股（NVDA 等）仍可跑（行情/指标完整），但基本面与个股新闻会降级为提示文本。
+美股/港股（如 NVDA、AAPL、0700.HK）可通过 akshare 获取行情、指标和财务报表；
+个股新闻按显式供应商链回退到 yfinance/Alpha Vantage，具体可用性取决于代码覆盖和网络。
 
 ## 6. 数据层（dataflows）
 

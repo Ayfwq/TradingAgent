@@ -8,6 +8,7 @@ import yfinance as yf
 from dateutil.relativedelta import relativedelta
 
 from .config import get_config
+from .errors import NoMarketDataError
 from .stockstats_utils import yf_retry
 from .symbol_utils import normalize_symbol
 
@@ -146,7 +147,9 @@ def get_news_yfinance(
 
     except Exception as e:
         logger.warning("获取 %s 的 yfinance 新闻失败：%s", ticker, e)
-        return f"获取 {ticker} 的新闻失败：{str(e)}"
+        # 交给数据路由层决定是否切换到 akshare/Alpha Vantage。过去这里
+        # 返回普通字符串，路由器会误判为成功并阻断备用供应商。
+        raise NoMarketDataError(ticker, canonical, f"yfinance 新闻获取失败：{e}") from e
 
 
 def get_global_news_yfinance(
@@ -237,4 +240,4 @@ def get_global_news_yfinance(
 
     except Exception as e:
         logger.warning("获取 %s 的 yfinance 全球新闻失败：%s", curr_date, e)
-        return f"获取全球新闻失败：{str(e)}"
+        raise NoMarketDataError(curr_date, curr_date, f"yfinance 全球新闻获取失败：{e}") from e

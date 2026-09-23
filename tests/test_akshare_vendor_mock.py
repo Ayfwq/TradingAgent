@@ -108,9 +108,56 @@ class TestDegradation:
         out = akv.get_news_akshare("600519.SS", "2026-08-14", "2026-08-17")
         assert isinstance(out, str)
 
-    def test_non_ashare_returns_graceful_message(self):
+    def test_news_supports_us_and_hk_codes(self, monkeypatch):
+        seen = []
+
+        def fake_news(**kwargs):
+            seen.append(kwargs["symbol"])
+            return pd.DataFrame(
+                {
+                    "发布时间": ["2026-08-16 12:00:00"],
+                    "新闻标题": ["测试新闻"],
+                    "新闻内容": ["测试内容"],
+                    "文章来源": ["测试来源"],
+                    "新闻链接": ["https://example.invalid/news"],
+                }
+            )
+
+        monkeypatch.setattr("akshare.stock_news_em", fake_news)
+        assert "测试新闻" in akv.get_news_akshare("AAPL", "2026-08-15", "2026-08-17")
+        assert "测试新闻" in akv.get_news_akshare("0700.HK", "2026-08-15", "2026-08-17")
+        assert seen == ["AAPL", "00700"]
+
+    def test_us_fundamentals_are_supported(self, monkeypatch):
+        seen = {}
+
+        def fake_us_indicator(**kwargs):
+            seen.update(kwargs)
+            return pd.DataFrame(
+                {"REPORT_DATE": ["2026-06-30"], "BASIC_EPS_CS": [1.2]}
+            )
+
+        monkeypatch.setattr(
+            "akshare.stock_financial_us_analysis_indicator_em",
+            fake_us_indicator,
+        )
         out = akv.get_fundamentals_akshare("NVDA", "2026-08-17")
-        assert "无法获取" in out and "A 股" in out
+        assert "东方财富美股" in out and "BASIC_EPS_CS" in out
+        assert seen["symbol"] == "NVDA"
+
+        out = akv.get_fundamentals_akshare("BRK-B", "2026-08-17")
+        assert "东方财富美股" in out
+        assert seen["symbol"] == "BRK_B"
+
+    def test_hk_fundamentals_are_supported(self, monkeypatch):
+        monkeypatch.setattr(
+            "akshare.stock_financial_hk_analysis_indicator_em",
+            lambda **k: pd.DataFrame(
+                {"STD_REPORT_DATE": ["2026-06-30"], "BASIC_EPS": [2.5]}
+            ),
+        )
+        out = akv.get_fundamentals_akshare("0700.HK", "2026-08-17")
+        assert "东方财富港股" in out and "BASIC_EPS" in out
 
 
 class TestSpecialContextTools:

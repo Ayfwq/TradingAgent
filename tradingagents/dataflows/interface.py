@@ -1,3 +1,4 @@
+import json
 import logging
 
 from . import akshare_data
@@ -32,6 +33,56 @@ from .y_finance import (
 from .yfinance_news import get_global_news_yfinance, get_news_yfinance
 
 logger = logging.getLogger(__name__)
+
+
+# 一些供应商（尤其是 akshare/yfinance 的新闻和扩展基本面接口）为了兼容
+# 旧调用方会把异常捕获后返回中文/英文错误字符串。路由器如果把这类字符串
+# 当成成功结果，就会阻断后续供应商，最终把错误直接展示给 Agent（例如
+# AAPL 被 akshare 返回“仅支持 A 股”）。在供应商边界统一识别这类结果，
+# 将其转换为 NoMarketDataError，复用现有的有序回退逻辑。
+def _looks_like_vendor_failure(result) -> bool:
+    """判断供应商返回值是否是错误/不可用文本，而不是有效报告。"""
+    if not isinstance(result, str):
+        return False
+    text = result.strip()
+    if not text:
+        return True
+    low = text.lower()
+    prefix = low[:240]
+    # 这里保留“未找到/没有新闻”作为正常的空结果，避免无新闻时重复请求多个
+    # 接口；真正的网络、认证和市场不支持错误必须继续走回退链。
+    # 只在供应商错误文本的句首判断中文标记；新闻正文可能自然出现“失败”或
+    # “不支持”，不能因为文章内容包含这些词就误触发回退。
+    if prefix.startswith(("通过 ", "获取 ", "无法获取", "不支持", "仅支持", "失败")) and any(
+        marker in prefix for marker in ("无法获取", "不支持", "仅支持", "失败")
+    ):
+        return True
+    # Alpha Vantage 的 HTTP 200 错误通常是 JSON 提示（Error Message/Note/
+    # Information），不能把它当作正常的基本面或新闻报告返回。
+    if text.startswith("{"):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict) and any(
+            isinstance(payload.get(key), str)
+            for key in ("Error Message", "Note", "Information", "error")
+        ):
+            return True
+    return prefix.startswith(
+        ("failed", "error", "exception", "timed out", "timeout", "curl:")
+    )
+
+
+def _result_symbol(method: str, args: tuple, kwargs: dict) -> str:
+    """从工具参数中取出用于构造 NoMarketDataError 的用户代码。"""
+    for key in ("ticker", "symbol", "stock"):
+        value = kwargs.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    if args and isinstance(args[0], str) and args[0].strip():
+        return args[0]
+    return method
 
 # 按类别组织工具。
 TOOLS_CATEGORIES = {
@@ -240,7 +291,14 @@ def route_to_vendor(method: str, *args, **kwargs):
         impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
 
         try:
-            return impl_func(*args, **kwargs)
+            result = impl_func(*args, **kwargs)
+            if _looks_like_vendor_failure(result):
+                # 将供应商的兼容性错误文本提升为类型化“无数据”信号，继续尝试
+                # 用户明确配置的下一个供应商。直接调用供应商函数的旧代码仍会
+                # 保留原始字符串，因此这是向后兼容的路由层修复。
+                symbol = _result_symbol(method, args, kwargs)
+                raise NoMarketDataError(symbol, symbol, f"{vendor} 返回错误文本")
+            return result
         except VendorRateLimitError:
             logger.warning("供应商 %r 对 %s 触发限流，尝试下一个供应商。", vendor, method)
             continue
