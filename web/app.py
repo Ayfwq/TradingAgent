@@ -50,7 +50,7 @@ class AnalysisRequest(BaseModel):
     analysts: list[Literal["market", "social", "news", "fundamentals"]] = Field(
         default_factory=lambda: ["market", "social", "news", "fundamentals"]
     )
-    model_profile_id: str | None = Field(default=None, max_length=64)
+    model_profile_id: str = Field(min_length=1, max_length=64)
 
     @field_validator("ticker")
     @classmethod
@@ -74,6 +74,14 @@ class AnalysisRequest(BaseModel):
             raise ValueError("至少选择一位分析师")
         return list(dict.fromkeys(value))
 
+    @field_validator("model_profile_id")
+    @classmethod
+    def validate_model_profile_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("请先选择一个已添加的模型")
+        return normalized
+
 
 class AnalysisRecord(BaseModel):
     id: str
@@ -83,6 +91,7 @@ class AnalysisRecord(BaseModel):
     phase: str
     created_at: str
     updated_at: str
+    artifacts: list[dict] = Field(default_factory=list)
     result: dict | None = None
     error: str | None = None
 
@@ -229,7 +238,73 @@ def _present_result(final_state: dict, decision: str) -> dict:
     }
 
 
-def _run_analysis(payload: AnalysisRequest) -> dict:
+_PROGRESS_ARTIFACT_SPECS = (
+    ("market_report", "技术分析", "analyst"),
+    ("fundamentals_report", "基本面分析", "analyst"),
+    ("news_report", "新闻分析", "analyst"),
+    ("sentiment_report", "市场情绪", "analyst"),
+    ("investment_debate_state", "多空研究", "research"),
+    ("trader_investment_plan", "交易方案", "trader"),
+    ("risk_debate_state", "风险评估", "risk"),
+    ("final_trade_decision", "最终决策", "final"),
+)
+
+
+def _progress_value(state: dict, key: str) -> str:
+    value = state.get(key)
+    if isinstance(value, dict):
+        for nested_key in (
+            "current_response", "judge_decision", "history",
+            "bull_history", "bear_history", "aggressive_history",
+            "neutral_history", "conservative_history",
+        ):
+            nested_value = str(value.get(nested_key) or "").strip()
+            if nested_value:
+                return nested_value
+        return ""
+    return str(value or "").strip()
+
+
+def _progress_phase(artifacts: list[dict]) -> str:
+    artifact_ids = {item["id"] for item in artifacts}
+    if "final_trade_decision" in artifact_ids:
+        return "最终研报正在收束"
+    if "risk_debate_state" in artifact_ids:
+        return "风险团队正在评估"
+    if "trader_investment_plan" in artifact_ids:
+        return "交易团队正在整理方案"
+    if "investment_debate_state" in artifact_ids:
+        return "研究团队正在进行多空研究"
+    if artifact_ids:
+        return "分析师正在整理研究产物"
+    return "研究团队正在收集市场资料"
+
+
+def _build_progress_artifacts(state: dict, cache: dict[str, dict]) -> list[dict]:
+    """将图状态压缩成可安全展示在 Web 轮询响应中的产物摘要。"""
+    artifacts: list[dict] = []
+    for key, title, kind in _PROGRESS_ARTIFACT_SPECS:
+        value = _progress_value(state, key)
+        if not value:
+            continue
+        cached = cache.get(key)
+        if cached is None or cached["fingerprint"] != value:
+            cache[key] = {"fingerprint": value, "updated_at": _utc_now()}
+        preview = " ".join(value.split())
+        if len(preview) > 260:
+            preview = preview[:260].rstrip() + "…"
+        artifacts.append({
+            "id": key,
+            "title": title,
+            "kind": kind,
+            "preview": preview,
+            "chars": len(value),
+            "updated_at": cache[key]["updated_at"],
+        })
+    return artifacts
+
+
+def _run_analysis(payload: AnalysisRequest, progress_callback=None) -> dict:
     logger.debug(
         "Running analysis: ticker=%s trade_date=%s asset_type=%s analysts=%s profile_id=%s",
         payload.ticker, payload.trade_date.isoformat(), payload.asset_type,
@@ -246,6 +321,7 @@ def _run_analysis(payload: AnalysisRequest) -> dict:
         selected_analysts=payload.analysts,
         debug=False,
         config=config,
+        progress_callback=progress_callback,
     )
     final_state, decision = graph.propagate(
         payload.ticker,
@@ -270,7 +346,25 @@ async def _execute(task_id: str, payload: AnalysisRequest) -> None:
             payload.analysts, payload.model_profile_id,
         )
         try:
-            result = await asyncio.to_thread(_run_analysis, payload)
+            progress_cache: dict[str, dict] = {}
+            last_progress_signature = None
+            last_progress_phase = ""
+
+            def on_progress(state: dict) -> None:
+                nonlocal last_progress_signature, last_progress_phase
+                artifacts = _build_progress_artifacts(state, progress_cache)
+                phase = _progress_phase(artifacts)
+                signature = tuple(
+                    (item["id"], item["preview"], item["chars"], item["updated_at"])
+                    for item in artifacts
+                )
+                if signature == last_progress_signature and phase == last_progress_phase:
+                    return
+                last_progress_signature = signature
+                last_progress_phase = phase
+                _update_record(task_id, phase=phase, artifacts=artifacts)
+
+            result = await asyncio.to_thread(_run_analysis, payload, on_progress)
         except Exception as exc:  # noqa: BLE001
             duration = time.time() - start
             logger.exception(

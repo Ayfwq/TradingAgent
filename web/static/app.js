@@ -8,6 +8,10 @@ const locatorPanel = document.querySelector('#locator-panel');
 const locatorForm = document.querySelector('#locator-form');
 const locatorState = document.querySelector('#locator-state');
 const locatorResults = document.querySelector('#locator-results');
+const processCoreKicker = document.querySelector('#process-core-kicker');
+const processCoreLabel = document.querySelector('#process-core-label');
+const artifactCount = document.querySelector('#artifact-count');
+const artifactStream = document.querySelector('#artifact-stream');
 let pollTimer = null;
 let stageTimer = null;
 let currentStage = 0;
@@ -251,11 +255,86 @@ const modelProfileSelect = document.querySelector('#model-profile');
 const modelProfileList = document.querySelector('#model-profile-list');
 const modelProfileForm = document.querySelector('#model-profile-form');
 const modelTemplate = document.querySelector('#model-template');
+const modelTemplatePicker = document.querySelector('#model-template-picker');
+const modelTemplateTrigger = document.querySelector('#model-template-trigger');
+const modelTemplateMenu = document.querySelector('#model-template-menu');
 const modelStatus = document.querySelector('#model-form-status');
-const discoveredModels = document.querySelector('#discovered-models');
 let modelProfiles = [];
 let modelTemplates = [];
 let discoveredModelOptions = [];
+
+const providerIconMeta = {
+  custom: { glyph: '✦', tone: 'mint' },
+  deepseek: { glyph: 'DS', tone: 'cyan', logo: 'https://www.deepseek.com/favicon.ico' },
+  volcengine: { glyph: '火', tone: 'blue', logo: 'https://portal.volccdn.com/obj/volcfe/misc/favicon.png' },
+  'minimax-cn': { glyph: 'M', tone: 'coral', logo: 'https://www.minimaxi.com/favicon.ico' },
+  minimax: { glyph: 'M', tone: 'coral', logo: 'https://www.minimax.io/favicon.ico' },
+  'glm-cn': { glyph: 'Z', tone: 'slate', logo: 'https://open.bigmodel.cn/static/images/favicon.png' },
+  'qwen-cn': { glyph: '阿', tone: 'orange', logo: 'https://assets.alicdn.com/g/qwenweb/qwen-chat-fe/0.2.91/static/images/qwen-logo.svg' },
+  qwen: { glyph: '阿', tone: 'orange', logo: 'https://assets.alicdn.com/g/qwenweb/qwen-chat-fe/0.2.91/static/images/qwen-logo.svg' },
+  'xiaomi-mimo': { glyph: 'mi', tone: 'xiaomi', logo: '/static/xiaomi-mi.svg' },
+  siliconflow: { glyph: 'SF', tone: 'indigo', logo: 'https://www.siliconflow.cn/favicon.ico' },
+  'z-ai': { glyph: 'Z', tone: 'violet', logo: 'https://z-cdn.chatglm.cn/z-ai/static/logo.svg' },
+  openrouter: { glyph: '◈', tone: 'violet', logo: 'https://openrouter.ai/favicon.ico' },
+  'kimi-cn': { glyph: 'K', tone: 'slate', logo: 'https://www.moonshot.cn/favicon.ico' },
+  kimi: { glyph: 'K', tone: 'slate', logo: 'https://www.moonshot.ai/favicon.ico' },
+  byteplus: { glyph: 'BP', tone: 'blue', logo: 'https://sf-bpcms.bytepluscdn.com/obj/byteplus-public-aiso/portal/assets/favicon.png' },
+  'aws-bedrock': { glyph: 'aws', tone: 'amber', logo: 'https://aws.amazon.com/favicon.ico' },
+  'tencent-hunyuan': { glyph: '云', tone: 'cyan', logo: 'https://cloud.tencent.com/favicon.ico' },
+  moark: { glyph: 'MO', tone: 'green', logo: 'https://www.moark.com/favicon.ico' },
+  ppio: { glyph: 'P', tone: 'coral', logo: 'https://ppio.com/favicon.ico' },
+  openai: { glyph: 'AI', tone: 'dark', logo: 'https://openai.com/favicon.svg' },
+  groq: { glyph: 'G', tone: 'amber', logo: 'https://groq.com/favicon.ico' },
+  'xai-grok': { glyph: 'X', tone: 'dark', logo: 'https://x.ai/favicon.ico' },
+  'opencode-zen': { glyph: 'OC', tone: 'dark', logo: 'https://opencode.ai/favicon.ico' },
+};
+
+function providerIconMarkup(template) {
+  const meta = providerIconMeta[template.id] || { glyph: String(template.name || '?').slice(0, 2).toUpperCase(), tone: 'neutral' };
+  const logo = meta.logo
+    ? `<img class="provider-logo" src="${escapeHtml(meta.logo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true;this.nextElementSibling.hidden=false;" />`
+    : '';
+  return `<span class="provider-icon provider-icon-${meta.tone} provider-icon-${escapeHtml(template.id)}" aria-hidden="true">${logo}<span class="provider-icon-glyph"${logo ? ' hidden' : ''}>${escapeHtml(meta.glyph)}</span></span>`;
+}
+
+function renderModelTemplatePicker() {
+  const selected = modelTemplates.find((item) => item.id === modelTemplate.value) || modelTemplates[0];
+  if (!selected) {
+    modelTemplateTrigger.querySelector('.provider-picker-label').textContent = '暂无服务商模板';
+    modelTemplateMenu.innerHTML = '';
+    return;
+  }
+  modelTemplateTrigger.innerHTML = `${providerIconMarkup(selected)}<span class="provider-picker-label">${escapeHtml(selected.name)}</span><b aria-hidden="true">⌄</b>`;
+  modelTemplateMenu.innerHTML = modelTemplates.map((item) => `
+    <button class="provider-picker-option${item.id === selected.id ? ' is-selected' : ''}" type="button" role="option" aria-selected="${item.id === selected.id}" data-template-id="${escapeHtml(item.id)}">
+      ${providerIconMarkup(item)}
+      <span class="provider-option-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.base_url || '自定义 Endpoint')}</small></span>
+      <i aria-hidden="true">${item.id === selected.id ? '✓' : ''}</i>
+    </button>`).join('');
+  modelTemplateMenu.querySelectorAll('[data-template-id]').forEach((option) => {
+    option.addEventListener('click', () => {
+      modelTemplate.value = option.dataset.templateId;
+      modelTemplate.dispatchEvent(new Event('change', { bubbles: true }));
+      closeModelTemplatePicker();
+      modelTemplateTrigger.focus();
+    });
+  });
+}
+
+function closeModelTemplatePicker() {
+  modelTemplateMenu.classList.add('hidden');
+  modelTemplateTrigger.setAttribute('aria-expanded', 'false');
+}
+
+function toggleModelTemplatePicker() {
+  const isOpen = !modelTemplateMenu.classList.contains('hidden');
+  if (isOpen) closeModelTemplatePicker();
+  else {
+    renderModelTemplatePicker();
+    modelTemplateMenu.classList.remove('hidden');
+    modelTemplateTrigger.setAttribute('aria-expanded', 'true');
+  }
+}
 
 function setModelStatus(message = '', kind = '') {
   modelStatus.textContent = message;
@@ -280,13 +359,6 @@ function showDiscoveredModels(models = []) {
   };
   fillSelect(quickSelect, quickValue, '请选择日常分析模型');
   fillSelect(deepSelect, deepValue, '请选择深度推理模型');
-  if (!models.length) {
-    discoveredModels.classList.add('hidden');
-    discoveredModels.innerHTML = '';
-    return;
-  }
-  discoveredModels.classList.remove('hidden');
-  discoveredModels.innerHTML = `<span>接口返回 ${uniqueModels.length} 个模型，已载入上方两个下拉框。</span>`;
 }
 
 function resetModelForm() {
@@ -297,12 +369,14 @@ function resetModelForm() {
   showDiscoveredModels();
   const custom = modelTemplates.find((item) => item.id === 'custom');
   if (custom) modelTemplate.value = custom.id;
+  renderModelTemplatePicker();
 }
 
 function populateModelForm(profile) {
   document.querySelector('#editing-profile-id').value = profile.id;
   document.querySelector('#model-name').value = profile.name || '';
   modelTemplate.value = profile.template || 'custom';
+  renderModelTemplatePicker();
   document.querySelector('#model-base-url').value = profile.base_url || '';
   showDiscoveredModels(profile.discovered_models || []);
   const quickSelect = document.querySelector('#model-quick');
@@ -318,10 +392,10 @@ function populateModelForm(profile) {
 
 function renderModelProfiles() {
   const selected = modelProfileSelect.value;
-  modelProfileSelect.innerHTML = '<option value="">系统默认</option>' + modelProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.quick_model)}</option>`).join('');
+  modelProfileSelect.innerHTML = '<option value="">请选择已添加的模型</option>' + modelProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.quick_model)}</option>`).join('');
   if (modelProfiles.some((profile) => profile.id === selected)) modelProfileSelect.value = selected;
   if (!modelProfiles.length) {
-    modelProfileList.innerHTML = '<p class="profile-empty">还没有模型配置。可继续使用当前系统模型，或添加新的第三方 Endpoint。</p>';
+    modelProfileList.innerHTML = '<p class="profile-empty">还没有模型配置，请先添加一个模型。</p>';
     return;
   }
   const editing = currentProfileId();
@@ -340,12 +414,35 @@ function renderModelProfiles() {
   });
 }
 
+async function fetchModelJson(url, options = {}, action = '读取模型配置') {
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(`${action}失败：无法连接应用服务，请确认后端已启动，并通过应用地址打开页面。`);
+    }
+    throw error;
+  }
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    // Keep the HTTP status message when the server returns a non-JSON body.
+  }
+  if (!response.ok) throw new Error(data.detail || `${action}失败（HTTP ${response.status}）`);
+  return data;
+}
+
 async function loadModelCenter() {
-  const [templatesResponse, profilesResponse] = await Promise.all([fetch('/api/model-templates'), fetch('/api/model-profiles', { cache: 'no-store' })]);
-  if (!templatesResponse.ok || !profilesResponse.ok) throw new Error('模型配置中心暂时不可用');
-  modelTemplates = (await templatesResponse.json()).templates || [];
-  modelProfiles = (await profilesResponse.json()).profiles || [];
+  const [templates, profiles] = await Promise.all([
+    fetchModelJson('/api/model-templates', { cache: 'no-store' }, '读取服务商模板'),
+    fetchModelJson('/api/model-profiles', { cache: 'no-store' }, '读取已保存配置'),
+  ]);
+  modelTemplates = templates.templates || [];
+  modelProfiles = profiles.profiles || [];
   modelTemplate.innerHTML = modelTemplates.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('');
+  renderModelTemplatePicker();
   renderModelProfiles();
   if (!currentProfileId()) resetModelForm();
 }
@@ -359,11 +456,24 @@ document.querySelector('#model-settings-trigger').addEventListener('click', open
 document.querySelector('#model-settings-close').addEventListener('click', () => closeModal(modelSettings));
 modelSettings.addEventListener('click', (event) => { if (event.target === modelSettings) closeModal(modelSettings); });
 document.querySelector('#new-model-profile').addEventListener('click', resetModelForm);
+modelTemplateTrigger.addEventListener('click', toggleModelTemplatePicker);
+modelTemplateTrigger.addEventListener('keydown', (event) => {
+  if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    toggleModelTemplatePicker();
+  } else if (event.key === 'Escape') {
+    closeModelTemplatePicker();
+  }
+});
+document.addEventListener('click', (event) => {
+  if (!modelTemplatePicker.contains(event.target)) closeModelTemplatePicker();
+});
 
 modelTemplate.addEventListener('change', () => {
+  renderModelTemplatePicker();
   const template = modelTemplates.find((item) => item.id === modelTemplate.value);
   const urlInput = document.querySelector('#model-base-url');
-  if (template?.base_url && (!urlInput.value || confirm(`使用 ${template.name} 的默认 Endpoint？`))) urlInput.value = template.base_url;
+  if (template?.base_url) urlInput.value = template.base_url;
 });
 
 modelProfileForm.addEventListener('submit', async (event) => {
@@ -473,15 +583,50 @@ function renderMarkdown(markdown = '') {
   return html || '<p>本章节没有可用内容。</p>';
 }
 
+function stageIndexForArtifacts(artifacts = []) {
+  const ids = new Set(artifacts.map((item) => item.id));
+  if (ids.has('final_trade_decision')) return 4;
+  if (ids.has('risk_debate_state')) return 3;
+  if (ids.has('investment_debate_state') || ids.has('trader_investment_plan')) return 2;
+  if (artifacts.length) return 1;
+  return 0;
+}
+
+function renderProcessArtifacts(record = {}) {
+  const artifacts = Array.isArray(record.artifacts) ? [...record.artifacts] : [];
+  artifacts.sort((left, right) => String(left.updated_at || '').localeCompare(String(right.updated_at || '')));
+  const latest = artifacts[artifacts.length - 1];
+  const stageIndex = stageIndexForArtifacts(artifacts);
+  currentStage = stageIndex;
+  stages.forEach((stage, index) => {
+    stage.className = `stage${index < stageIndex ? ' done' : index === stageIndex ? ' active' : ''}`;
+  });
+  artifactCount.textContent = `${artifacts.length} 份产物`;
+  processCoreKicker.textContent = latest ? `${String(latest.kind || 'live').toUpperCase()} OUTPUT` : 'LIVE OUTPUT';
+  processCoreLabel.textContent = latest?.title || '准备中';
+  if (!artifacts.length) {
+    artifactStream.innerHTML = '<div class="artifact-empty">正在等待第一份研究产物…</div>';
+    return;
+  }
+  artifactStream.innerHTML = artifacts.slice(-5).reverse().map((artifact, index) => `
+    <div class="artifact-item${index === 0 ? ' is-latest' : ''}">
+      <i aria-hidden="true"></i>
+      <div>
+        <strong>${escapeHtml(artifact.title || '阶段产物')}</strong>
+        <p>${escapeHtml(artifact.preview || '产物已生成，等待下一阶段继续处理。')}</p>
+        <small>${Number(artifact.chars || 0).toLocaleString()} 字符 · 实时更新</small>
+      </div>
+    </div>`).join('');
+}
+
 function startStageAnimation() {
+  window.clearInterval(stageTimer);
   currentStage = 0;
   stages.forEach((stage, index) => stage.className = `stage${index === 0 ? ' active' : ''}`);
-  stageTimer = window.setInterval(() => {
-    if (currentStage >= stages.length - 2) return;
-    stages[currentStage].className = 'stage done';
-    currentStage += 1;
-    stages[currentStage].className = 'stage active';
-  }, 14000);
+  processCoreKicker.textContent = 'LIVE OUTPUT';
+  processCoreLabel.textContent = '准备中';
+  artifactCount.textContent = '0 份产物';
+  artifactStream.innerHTML = '<div class="artifact-empty">正在等待第一份研究产物…</div>';
 }
 
 function completeStages() {
@@ -537,6 +682,14 @@ function showReport(record) {
   processPanel.classList.add('hidden');
   openModal(reportPanel);
   reportCloseButton.focus();
+  loadHistoryPicker().then(() => {
+    if (!currentReportId) return;
+    const currentOption = [...historyReportSelect.options].find((option) => option.value === currentReportId);
+    if (currentOption) {
+      historyReportSelect.value = currentReportId;
+      historyOpenButton.disabled = false;
+    }
+  });
 }
 
 async function deleteCurrentReport() {
@@ -574,6 +727,7 @@ async function poll(taskId) {
     if (!response.ok) throw new Error('无法读取分析任务');
     const record = await response.json();
     document.querySelector('#process-message').textContent = record.phase;
+    renderProcessArtifacts(record);
     if (record.status === 'completed') {
       window.clearTimeout(pollTimer);
       completeStages();
@@ -596,6 +750,12 @@ async function poll(taskId) {
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   note.classList.remove('error');
+  const modelProfileId = modelProfileSelect.value;
+  if (!modelProfileId) {
+    note.textContent = modelProfiles.length ? '请先选择一个已添加的模型。' : '请先在“管理模型”中添加一个模型。';
+    note.classList.add('error');
+    return;
+  }
   note.textContent = '分析任务启动后请保持页面打开。';
   submitButton.disabled = true;
   reportPanel.classList.add('hidden');
@@ -608,7 +768,7 @@ form.addEventListener('submit', async (event) => {
     trade_date: document.querySelector('#trade-date').value,
     asset_type: document.querySelector('#asset-type').value,
     analysts: ['market', 'social', 'news', 'fundamentals'],
-    model_profile_id: modelProfileSelect.value || null,
+    model_profile_id: modelProfileId,
   };
 
   try {

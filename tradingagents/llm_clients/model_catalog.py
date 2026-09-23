@@ -126,17 +126,16 @@ MODEL_OPTIONS: ProviderModeOptions = {
             ("Grok 4.20 Multi-Agent - 多智能体推理", "grok-4.20-multi-agent-0309"),
         ],
     },
-    # DeepSeek：deepseek-chat / deepseek-reasoner 别名已于 2026-07-24 弃用，
-    # 现在映射到 V4 Flash，因此直接展示 V4 ID。V4 Flash 同时支持非思考与
-    # 思考模式（DeepSeekChatOpenAI 客户端负责 reasoning_content 往返）。
+    # DeepSeek 当前 Flash API 模型名为 deepseek-flash；旧的
+    # deepseek-v4-flash 仍保留在能力表中以兼容已有配置。
     "deepseek": {
         "quick": [
-            ("DeepSeek V4 Flash - 最新快速模型，支持思考与非思考", "deepseek-v4-flash"),
+            ("DeepSeek Flash - 最新快速模型，支持思考与非思考", "deepseek-flash"),
             ("自定义模型 ID", "custom"),
         ],
         "deep": [
             ("DeepSeek V4 Pro - 最新旗舰模型", "deepseek-v4-pro"),
-            ("DeepSeek V4 Flash - 速度快，支持思考", "deepseek-v4-flash"),
+            ("DeepSeek Flash - 速度快，支持思考", "deepseek-flash"),
             ("自定义模型 ID", "custom"),
         ],
     },

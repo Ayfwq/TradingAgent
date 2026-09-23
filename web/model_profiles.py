@@ -18,16 +18,32 @@ from cryptography.fernet import Fernet, InvalidToken
 logger = logging.getLogger(__name__)
 
 MODEL_TEMPLATES = [
-    {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1"},
-    {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com/v1"},
+    {"id": "custom", "name": "自定义模型", "base_url": ""},
+    # DeepSeek 官方 API 地址；不要沿用旧的兼容层 /v1 地址。
+    {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com"},
+    {"id": "volcengine", "name": "火山引擎", "base_url": "https://ark.cn-beijing.volces.com/api/v3"},
+    {"id": "minimax-cn", "name": "MiniMax CN", "base_url": "https://api.minimaxi.com/v1"},
+    {"id": "minimax", "name": "MiniMax Global", "base_url": "https://api.minimax.io/v1"},
+    {"id": "glm-cn", "name": "Bigmodel", "base_url": "https://open.bigmodel.cn/api/paas/v4"},
     {"id": "qwen-cn", "name": "通义千问（中国区）", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"},
     {"id": "qwen", "name": "通义千问（国际区）", "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"},
-    {"id": "glm-cn", "name": "智谱 GLM", "base_url": "https://open.bigmodel.cn/api/paas/v4/"},
-    {"id": "kimi", "name": "Kimi / Moonshot", "base_url": "https://api.moonshot.ai/v1"},
-    {"id": "minimax", "name": "MiniMax", "base_url": "https://api.minimax.io/v1"},
+    {"id": "xiaomi-mimo", "name": "Xiaomi MIMO", "base_url": "https://api.xiaomimimo.com/v1"},
+    {"id": "siliconflow", "name": "硅基流动", "base_url": "https://api.siliconflow.cn/v1"},
+    {"id": "z-ai", "name": "Z.ai", "base_url": "https://api.z.ai/api/paas/v4"},
     {"id": "openrouter", "name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1"},
+    {"id": "kimi-cn", "name": "Kimi CN", "base_url": "https://api.moonshot.cn/v1"},
+    {"id": "kimi", "name": "Kimi Global", "base_url": "https://api.moonshot.ai/v1"},
+    {"id": "byteplus", "name": "BytePlus", "base_url": "https://ark.ap-southeast.bytepluses.com/api/v3"},
+    # Bedrock 的 mantle 入口支持 OpenAI-compatible /models，便于本页面发现模型；区域可按账户修改。
+    {"id": "aws-bedrock", "name": "AWS", "base_url": "https://bedrock-mantle.us-east-1.api.aws/v1"},
+    {"id": "tencent-hunyuan", "name": "腾讯云", "base_url": "https://api.hunyuan.cloud.tencent.com/v1"},
+    {"id": "moark", "name": "模力方舟", "base_url": "https://api.moark.com/v1"},
+    {"id": "ppio", "name": "PPIO", "base_url": "https://api.ppio.com/openai/v1"},
+    {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1"},
     {"id": "groq", "name": "Groq", "base_url": "https://api.groq.com/openai/v1"},
-    {"id": "custom", "name": "自定义 / Ollama / vLLM", "base_url": ""},
+    {"id": "xai-grok", "name": "xAI / Grok", "base_url": "https://api.x.ai/v1"},
+    # OpenCode Zen exposes OpenAI-compatible Chat Completions at this base URL.
+    {"id": "opencode-zen", "name": "OpenCode Zen", "base_url": "https://opencode.ai/zen/v1"},
 ]
 
 

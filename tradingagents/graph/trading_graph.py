@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,7 @@ class TradingAgentsGraph:
         debug=False,
         config: dict[str, Any] = None,
         callbacks: list | None = None,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ):
         """初始化交易 Agent 图及其组件。
 
@@ -87,10 +89,12 @@ class TradingAgentsGraph:
             debug：是否以调试模式运行。
             config：配置字典；为 None 时使用默认配置。
             callbacks：可选回调处理器列表（例如跟踪 LLM/工具统计）。
+            progress_callback：可选的图状态回调，用于向 Web UI 推送阶段性产物。
         """
         self.debug = debug
         self.config = apply_data_vendors_env(config or DEFAULT_CONFIG)
         self.callbacks = callbacks or []
+        self.progress_callback = progress_callback
 
         logger.info(
             "正在初始化 TradingAgentsGraph：debug=%s，selected_analysts=%s，provider=%s，"
@@ -569,11 +573,19 @@ class TradingAgentsGraph:
             logger.debug("检查点 thread_id=%s", tid)
 
         try:
-            if self.debug:
+            if self.debug or self.progress_callback:
                 trace = []
+                streamed_state = {}
                 last_printed = None
                 for chunk in self.graph.stream(init_agent_state, **args):
-                    if chunk["messages"]:
+                    trace.append(chunk)
+                    streamed_state.update(chunk)
+                    if self.progress_callback:
+                        try:
+                            self.progress_callback(dict(streamed_state))
+                        except Exception:  # noqa: BLE001 - UI progress must not stop analysis
+                            logger.exception("推送图阶段产物失败，继续执行分析")
+                    if self.debug and chunk.get("messages"):
                         msg = chunk["messages"][-1]
                         # 交易员之后的节点不会向 messages 追加内容，因此同一条尾部消息
                         # 会在多个数据块重复。只在消息变化时打印（#1027）；轨迹/状态合并不变。
@@ -581,12 +593,9 @@ class TradingAgentsGraph:
                         if signature != last_printed:
                             msg.pretty_print()
                             last_printed = signature
-                        trace.append(chunk)
                 # 流式数据块是逐节点增量。合并它们，使返回状态与非调试路径中
                 # graph.invoke() 的结果一致。
-                final_state = {}
-                for chunk in trace:
-                    final_state.update(chunk)
+                final_state = streamed_state
                 logger.debug("调试流已执行，共 %d 个数据块", len(trace))
             else:
                 final_state = self.graph.invoke(init_agent_state, **args)

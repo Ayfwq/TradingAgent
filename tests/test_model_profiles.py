@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from tradingagents.graph.trading_graph import TradingAgentsGraph
-from web.model_profiles import ModelProfileService
+from web.model_profiles import MODEL_TEMPLATES, ModelProfileService
 
 
 def _payload(**overrides):
@@ -17,6 +17,35 @@ def _payload(**overrides):
     }
     payload.update(overrides)
     return payload
+
+
+def test_model_templates_include_requested_providers():
+    templates = {item["id"]: item for item in MODEL_TEMPLATES}
+    expected = {
+        "custom": "",
+        "deepseek": "https://api.deepseek.com",
+        "volcengine": "https://ark.cn-beijing.volces.com/api/v3",
+        "minimax-cn": "https://api.minimaxi.com/v1",
+        "minimax": "https://api.minimax.io/v1",
+        "glm-cn": "https://open.bigmodel.cn/api/paas/v4",
+        "qwen-cn": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "xiaomi-mimo": "https://api.xiaomimimo.com/v1",
+        "siliconflow": "https://api.siliconflow.cn/v1",
+        "z-ai": "https://api.z.ai/api/paas/v4",
+        "openrouter": "https://openrouter.ai/api/v1",
+        "kimi-cn": "https://api.moonshot.cn/v1",
+        "kimi": "https://api.moonshot.ai/v1",
+        "byteplus": "https://ark.ap-southeast.bytepluses.com/api/v3",
+        "aws-bedrock": "https://bedrock-mantle.us-east-1.api.aws/v1",
+        "tencent-hunyuan": "https://api.hunyuan.cloud.tencent.com/v1",
+        "moark": "https://api.moark.com/v1",
+        "ppio": "https://api.ppio.com/openai/v1",
+        "xai-grok": "https://api.x.ai/v1",
+        "opencode-zen": "https://opencode.ai/zen/v1",
+    }
+
+    assert set(expected) <= set(templates)
+    assert {key: templates[key]["base_url"] for key in expected} == expected
 
 
 def test_profile_encrypts_key_and_produces_graph_overrides(tmp_path):

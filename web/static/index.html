@@ -6,7 +6,7 @@
     <meta name="description" content="投研智报：多智能体股票投研与 AI 资讯日报" />
     <link rel="icon" type="image/png" href="/static/touyan-zhibao-icon.png?v=1" />
     <title>投研智报 · 股票投研与 AI 日报</title>
-    <link rel="stylesheet" href="/static/styles.css?v=workspace-13" />
+    <link rel="stylesheet" href="/static/styles.css?v=process-design-1" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -48,7 +48,7 @@
             <span>研究模型</span>
             <div class="model-select-row">
               <select id="model-profile" name="model_profile_id">
-                <option value="">系统默认</option>
+                <option value="">请选择已添加的模型</option>
               </select>
               <button class="model-inline-trigger" id="model-settings-trigger" type="button">管理模型</button>
             </div>
@@ -141,7 +141,17 @@
               <div class="model-form-head"><strong id="model-form-title">新增模型 Endpoint</strong><span id="model-form-status"></span></div>
               <div class="model-form-grid">
                 <label><span>配置名称</span><input id="model-name" maxlength="80" placeholder="例如：我的 DeepSeek" required /></label>
-                <label><span>服务商模板</span><select id="model-template"></select></label>
+                <label class="model-template-field">
+                  <span>服务商模板</span>
+                  <div class="provider-picker" id="model-template-picker">
+                    <button class="provider-picker-trigger" id="model-template-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="model-template-menu">
+                      <span class="provider-picker-label">正在读取服务商…</span>
+                      <b aria-hidden="true">⌄</b>
+                    </button>
+                    <div class="provider-picker-menu hidden" id="model-template-menu" role="listbox" aria-label="服务商模板"></div>
+                  </div>
+                  <select id="model-template" class="provider-native-select" tabindex="-1" aria-hidden="true"></select>
+                </label>
                 <label class="span-two"><span>Endpoint URL</span><input id="model-base-url" maxlength="300" placeholder="https://example.com/v1" required /></label>
                 <div class="api-key-row span-two">
                   <label><span>API Key <small>保存后不会再次显示</small></span><input id="model-api-key" type="password" maxlength="1000" autocomplete="new-password" placeholder="输入新密钥，编辑时留空则保留原密钥" /></label>
@@ -153,11 +163,9 @@
                 <label><span>日常分析模型</span><select id="model-quick"><option value="">请先发现模型后选择</option></select></label>
                 <label><span>深度推理模型</span><select id="model-deep"><option value="">请选择深度推理模型</option></select></label>
               </div>
-              <p class="model-security-note">先填写 Endpoint 和 API Key，再测试连接或发现模型；然后从下拉框选择模型并保存。密钥仅在服务器端加密保存。</p>
               <div class="model-form-actions">
                 <button class="primary-button compact" type="submit"><span>保存配置</span><b>→</b></button>
               </div>
-              <div id="discovered-models" class="discovered-models hidden"></div>
             </form>
           </div>
           </div>
@@ -168,16 +176,31 @@
         <div class="process-copy">
           <span class="process-kicker">ANALYSIS IN PROGRESS</span>
           <h2 id="process-title">研究团队正在协作</h2>
-          <p id="process-message">不同视角正在同时阅读市场信息，这通常需要几分钟。</p>
+          <p id="process-message">正在连接研究流水线，稍后会陆续出现阶段性产物。</p>
         </div>
-        <div class="agent-orbit" aria-hidden="true">
+        <div class="agent-orbit" aria-label="实时研究产物">
           <div class="orbit orbit-one"></div>
           <div class="orbit orbit-two"></div>
-          <div class="core"><span></span></div>
-          <div class="agent agent-a">技</div>
-          <div class="agent agent-b">基</div>
-          <div class="agent agent-c">闻</div>
-          <div class="agent agent-d">情</div>
+          <div class="core">
+            <span class="core-beacon"></span>
+            <div class="core-content">
+              <small id="process-core-kicker">LIVE OUTPUT</small>
+              <strong id="process-core-label">准备中</strong>
+            </div>
+          </div>
+          <div class="agent agent-a"><span class="agent-symbol">技</span><span class="agent-name">技术面</span></div>
+          <div class="agent agent-b"><span class="agent-symbol">基</span><span class="agent-name">基本面</span></div>
+          <div class="agent agent-c"><span class="agent-symbol">闻</span><span class="agent-name">新闻</span></div>
+          <div class="agent agent-d"><span class="agent-symbol">情</span><span class="agent-name">情绪</span></div>
+          <div class="artifact-console">
+            <div class="artifact-console-head">
+              <span>LIVE ARTIFACTS</span>
+              <strong id="artifact-count">0 份产物</strong>
+            </div>
+            <div class="artifact-stream" id="artifact-stream" aria-live="polite">
+              <div class="artifact-empty">正在等待第一份研究产物…</div>
+            </div>
+          </div>
         </div>
         <div class="stages" id="stages">
           <div class="stage active"><i></i><span>收集市场资料</span></div>
@@ -242,7 +265,7 @@
     </main>
 
     <footer>投研智报 · 多智能体股票投研与 AI 资讯日报</footer>
-    <script src="/static/app.js?v=history-search-modal-1" defer></script>
+    <script src="/static/app.js?v=provider-icons-9" defer></script>
     <script src="/static/news_loader.js?v=4" defer></script>
   </body>
 </html>
