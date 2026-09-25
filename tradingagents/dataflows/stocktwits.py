@@ -1,7 +1,7 @@
 """StockTwits 公共股票代码信息流获取器。
 
-StockTwits 在 ``api.stocktwits.com/api/2/streams/symbol/{ticker}.json`` 提供按代码的
-消息流，无需 API 密钥、OAuth 或注册。每条消息包含用户标注的情绪字段
+本模块直接请求 ``api.stocktwits.com/api/2/streams/symbol/{ticker}.json`` 按代码获取
+消息流。接口是否可用取决于 StockTwits 当前的服务策略和运行环境网络。每条消息包含用户标注的情绪字段
 （``Bullish``/``Bearish``/null）、正文、时间戳和发布用户。
 
 函数特意保持自包含：超时时间较短，HTTP 或解析失败时优雅降级，并返回字符串，
@@ -13,6 +13,8 @@ from __future__ import annotations
 import http.client
 import json
 import logging
+import time
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from .symbol_utils import crypto_base
@@ -21,6 +23,27 @@ logger = logging.getLogger(__name__)
 
 _API = "https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json"
 _UA = "tradingagents/0.2 (+https://github.com/TauricResearch/TradingAgents)"
+_RETRYABLE_HTTP_CODES = {408, 429, 500, 502, 503, 504}
+
+
+def _error_detail(exc: Exception) -> str:
+    """Return a compact diagnostic suitable for logs and the traced prompt."""
+    if isinstance(exc, HTTPError):
+        return f"HTTP {exc.code} {exc.reason}"
+    reason = getattr(exc, "reason", None)
+    if reason is not None:
+        return f"{type(exc).__name__}: {reason}"
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _retry_delay(exc: HTTPError) -> float:
+    """Honor a short numeric Retry-After value, with a bounded fallback."""
+    headers = getattr(exc, "headers", None)
+    value = headers.get("Retry-After") if headers else None
+    try:
+        return min(max(float(value), 0.0), 5.0) if value else 0.5
+    except (TypeError, ValueError):
+        return 0.5
 
 
 def _stocktwits_symbol(ticker: str) -> str:
@@ -41,14 +64,39 @@ def fetch_stocktwits_messages(ticker: str, limit: int = 30, timeout: float = 10.
     """
     url = _API.format(ticker=_stocktwits_symbol(ticker))
     req = Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
-    try:
-        with urlopen(req, timeout=timeout) as resp:
-            data = json.loads(resp.read())
-    except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
-        # OSError 覆盖 URLError/TimeoutError/连接重置；HTTPException 覆盖分块传输
-        # 错误（IncompleteRead/BadStatusLine，#1024）。
-        logger.warning("获取 %s 的 StockTwits 数据失败：%s", ticker, exc)
-        return f"<StockTwits 不可用：{type(exc).__name__}>"
+    data = None
+    for attempt in range(2):
+        try:
+            with urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read())
+            break
+        except HTTPError as exc:
+            if exc.code in _RETRYABLE_HTTP_CODES and attempt == 0:
+                delay = _retry_delay(exc)
+                logger.warning(
+                    "StockTwits %s 返回 HTTP %s，%.1f 秒后重试一次",
+                    ticker, exc.code, delay,
+                )
+                time.sleep(delay)
+                continue
+            detail = _error_detail(exc)
+            logger.warning("获取 %s 的 StockTwits 数据失败：%s", ticker, detail)
+            return f"<StockTwits 不可用：{detail}>"
+        except (OSError, http.client.HTTPException) as exc:
+            if attempt == 0:
+                logger.warning(
+                    "获取 %s 的 StockTwits 数据失败：%s；将重试一次",
+                    ticker, _error_detail(exc),
+                )
+                time.sleep(0.5)
+                continue
+            detail = _error_detail(exc)
+            logger.warning("获取 %s 的 StockTwits 数据失败：%s", ticker, detail)
+            return f"<StockTwits 不可用：{detail}>"
+        except json.JSONDecodeError as exc:
+            detail = f"响应不是有效 JSON：{exc}"
+            logger.warning("获取 %s 的 StockTwits 数据失败：%s", ticker, detail)
+            return f"<StockTwits 不可用：{detail}>"
 
     messages = data.get("messages", []) if isinstance(data, dict) else []
     if not messages:

@@ -49,8 +49,8 @@ def _looks_like_vendor_failure(result) -> bool:
         return True
     low = text.lower()
     prefix = low[:240]
-    # 这里保留“未找到/没有新闻”作为正常的空结果，避免无新闻时重复请求多个
-    # 接口；真正的网络、认证和市场不支持错误必须继续走回退链。
+    # 新闻空结果由 _is_empty_news_result 单独判断，并继续尝试已配置的备用源。
+    # 这里只判断供应商错误字符串，避免把新闻正文中的普通措辞误当作故障。
     # 只在供应商错误文本的句首判断中文标记；新闻正文可能自然出现“失败”或
     # “不支持”，不能因为文章内容包含这些词就误触发回退。
     if prefix.startswith(("通过 ", "获取 ", "无法获取", "不支持", "仅支持", "失败")) and any(
@@ -72,6 +72,44 @@ def _looks_like_vendor_failure(result) -> bool:
     return prefix.startswith(
         ("failed", "error", "exception", "timed out", "timeout", "curl:")
     )
+
+
+def _is_empty_news_result(method: str, result) -> bool:
+    """Treat a provider's explicit empty-news response as a fallback signal.
+
+    An empty result from one provider is not evidence that no provider has news;
+    in particular, the configured order may begin with a provider that has weak
+    coverage for the requested market. Keep this special case limited to news
+    methods so other data tools retain their existing no-data semantics.
+    """
+    if method not in {"get_news", "get_global_news"}:
+        return False
+
+    if isinstance(result, dict) and "feed" in result:
+        return not isinstance(result["feed"], list) or not result["feed"]
+    if not isinstance(result, str):
+        return False
+
+    text = result.strip()
+    if not text:
+        return True
+
+    # Alpha Vantage returns a successful JSON envelope with an empty `feed` when
+    # its search has no matching articles. It must not stop the fallback chain.
+    if text.startswith("{"):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict) and isinstance(payload.get("feed"), list):
+            return not payload["feed"]
+
+    low = text.lower()
+    empty_markers = (
+        "未找到", "没有相关新闻", "没有新闻", "暂无新闻", "无相关新闻",
+        "no news", "no articles", "no results", "no headlines",
+    )
+    return any(marker in low for marker in empty_markers)
 
 
 def _result_symbol(method: str, args: tuple, kwargs: dict) -> str:
@@ -258,8 +296,8 @@ def get_vendor(category: str, method: str = None) -> str:
     # 回退到类别级配置。
     return config.get("data_vendors", {}).get(category, "default")
 
-def route_to_vendor(method: str, *args, **kwargs):
-    """将方法调用路由到合适的供应商实现，并提供回退支持。"""
+def _route_to_vendor(method: str, *args, **kwargs):
+    """Return (result, vendor) after routing, including the configured fallback chain."""
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
@@ -286,35 +324,47 @@ def route_to_vendor(method: str, *args, **kwargs):
 
     last_no_data: NoMarketDataError | None = None
     first_error: Exception | None = None
+    provider_status: list[str] = []
     for vendor in vendor_chain:
         vendor_impl = VENDOR_METHODS[method][vendor]
         impl_func = vendor_impl[0] if isinstance(vendor_impl, list) else vendor_impl
 
         try:
             result = impl_func(*args, **kwargs)
-            if _looks_like_vendor_failure(result):
+            if _looks_like_vendor_failure(result) or _is_empty_news_result(method, result):
                 # 将供应商的兼容性错误文本提升为类型化“无数据”信号，继续尝试
                 # 用户明确配置的下一个供应商。直接调用供应商函数的旧代码仍会
                 # 保留原始字符串，因此这是向后兼容的路由层修复。
                 symbol = _result_symbol(method, args, kwargs)
-                raise NoMarketDataError(symbol, symbol, f"{vendor} 返回错误文本")
-            return result
+                detail = (
+                    f"{vendor} 未返回新闻文章"
+                    if _is_empty_news_result(method, result)
+                    else f"{vendor} 返回错误文本"
+                )
+                raise NoMarketDataError(symbol, symbol, detail)
+            if method in {"get_news", "get_global_news"}:
+                logger.info("供应商 %s 成功返回 %s 数据。", vendor, method)
+            return result, vendor
         except VendorRateLimitError:
             logger.warning("供应商 %r 对 %s 触发限流，尝试下一个供应商。", vendor, method)
+            provider_status.append(f"{vendor}: rate limited")
             continue
         except VendorNotConfiguredError as e:
             logger.warning("供应商 %r 未配置，无法处理 %s，尝试下一个供应商。", vendor, method)
+            provider_status.append(f"{vendor}: not configured")
             if first_error is None:
                 first_error = e  # 如果没有其他供应商可用，最终抛出该错误。
             continue
         except NoMarketDataError as e:
             last_no_data = e  # 此供应商没有数据，其他配置的供应商可能有数据。
+            provider_status.append(f"{vendor}: {e.detail or 'no data'}")
             continue
         except Exception as e:
             # 一个供应商失败而另一个供应商可以提供数据时，不要让调用崩溃；
             # 但也不能静默吞掉异常：主供应商故障必须在日志中可见（#989），
             # 不能被备用供应商的结果掩盖。
             logger.warning("供应商 %r 处理 %s 失败：%s", vendor, method, e)
+            provider_status.append(f"{vendor}: request failed ({type(e).__name__})")
             if first_error is None:
                 first_error = e
             continue
@@ -333,6 +383,18 @@ def route_to_vendor(method: str, *args, **kwargs):
         sym = last_no_data.symbol
         canonical = last_no_data.canonical
         resolved = "" if canonical == sym else f" (resolved to '{canonical}')"
+        if method in {"get_news", "get_global_news"}:
+            date_range = ""
+            if method == "get_news" and len(args) >= 3:
+                date_range = f"（{args[1]} 至 {args[2]}）"
+            elif method == "get_global_news" and args:
+                date_range = f"（截至 {args[0]}）"
+            status_text = "; ".join(provider_status) or "未尝试到可用来源"
+            return (
+                f"NEWS_UNAVAILABLE：未能从任何已配置的新闻来源获取 '{sym}'{resolved}"
+                f"{date_range} 的新闻。已尝试：{status_text}。"
+                "请明确说明新闻数据暂不可用，不要编造新闻；其他分析可以继续。"
+            ), None
         # 暴露类型化错误的详细信息（例如“最新行是 2025-06-11……数据过期”），
         # 让智能体看到具体原因——代码无效、没有覆盖或数据过期，而不是笼统的“不可用”。
         reason = f" ({last_no_data.detail})" if last_no_data.detail else ""
@@ -340,7 +402,7 @@ def route_to_vendor(method: str, *args, **kwargs):
             f"NO_DATA_AVAILABLE：任何配置的供应商都没有返回 '{sym}'{resolved} 的可用市场数据{reason}。"
             f"代码可能无效、已退市、没有数据覆盖，或供应商返回了过期数据。"
             f"不要估算或虚构数值，请报告该代码的数据不可用。"
-        )
+        ), None
 
     # 没有供应商返回数据，也没有供应商明确报告“无数据”——暴露第一个真实错误
     #（例如主供应商网络失败）。可选增强类别则降级为哨兵值，避免辅助数据中止运行。
@@ -350,7 +412,34 @@ def route_to_vendor(method: str, *args, **kwargs):
             return (
                 f"DATA_UNAVAILABLE：无法获取可选类别 {category} 的数据（{first_error}）。"
                 f"请在没有该数据的情况下继续，不要虚构数值。"
-            )
+            ), None
+        if method in {"get_news", "get_global_news"}:
+            date_range = ""
+            if method == "get_news" and len(args) >= 3:
+                date_range = f"（{args[1]} 至 {args[2]}）"
+            elif method == "get_global_news" and args:
+                date_range = f"（截至 {args[0]}）"
+            status_text = "; ".join(provider_status) or "没有可用供应商"
+            return (
+                f"NEWS_UNAVAILABLE：所有已配置新闻来源均未能获取 '{_result_symbol(method, args, kwargs)}'"
+                f"{date_range} 的新闻。已尝试：{status_text}。"
+                "请明确说明新闻数据暂不可用，不要编造新闻；其他分析可以继续。"
+            ), None
         raise first_error
 
     raise RuntimeError(f"方法 '{method}' 没有可用供应商")
+
+
+def route_to_vendor(method: str, *args, **kwargs):
+    """将方法调用路由到合适的供应商实现，并提供回退支持。"""
+    result, _vendor = _route_to_vendor(method, *args, **kwargs)
+    return result
+
+
+def route_to_vendor_with_source(method: str, *args, **kwargs):
+    """和 :func:`route_to_vendor` 相同，但同时返回实际成功的供应商名称。
+
+    返回值为 ``(result, vendor)``；若所有来源均失败并返回不可用说明，vendor
+    为 ``None``。用于让报告如实注明新闻来源，而无需猜测配置中的首选供应商。
+    """
+    return _route_to_vendor(method, *args, **kwargs)

@@ -65,7 +65,10 @@ def test_ai_expansion_must_still_be_verified_by_directory():
         patch("web.instrument_search.requests.get", side_effect=[empty, verified]),
         patch.object(service, "_expand_with_configured_model", return_value=["英伟达"]),
     ):
-        result = service.search("做显卡和AI芯片的美国公司")
+        result = service.search(
+            "做显卡和AI芯片的美国公司",
+            model_config={"llm_provider": "openai_compatible", "quick_think_llm": "test-model"},
+        )
 
     assert result["ai_used"] is True
     assert result["results"][0]["ticker"] == "NVDA"
@@ -78,7 +81,20 @@ def test_ai_failure_degrades_without_inventing_ticker():
         patch("web.instrument_search.requests.get", return_value=_response('var suggestvalue="";')),
         patch.object(service, "_expand_with_configured_model", side_effect=RuntimeError("quota")),
     ):
-        result = service.search("某个没有明确名称的公司")
+        result = service.search(
+            "某个没有明确名称的公司",
+            model_config={"llm_provider": "openai_compatible", "quick_think_llm": "test-model"},
+        )
 
     assert result["status"] == "ai_unavailable"
+    assert result["results"] == []
+
+
+def test_description_search_requires_selected_model_profile():
+    service = InstrumentSearchService()
+    with patch("web.instrument_search.requests.get", return_value=_response('var suggestvalue="";')):
+        result = service.search("美国芯片公司")
+
+    assert result["status"] == "model_required"
+    assert "研究模型" in result["message"]
     assert result["results"] == []

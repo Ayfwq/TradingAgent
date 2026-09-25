@@ -72,6 +72,7 @@ class InstrumentSearchService:
         market: Market = "auto",
         *,
         use_ai: bool = True,
+        model_config: dict | None = None,
         limit: int = 8,
     ) -> dict:
         query = " ".join(query.strip().split())
@@ -92,13 +93,18 @@ class InstrumentSearchService:
 
         if use_ai and not self._has_strong_match(ranked):
             ai_used = True
-            try:
-                expansions = self._expand_with_configured_model(query, market)
-            except Exception as exc:  # noqa: BLE001
+            if model_config is None:
                 ai_available = False
-                ai_message = "AI 描述理解暂不可用，已保留证券目录的直接搜索结果。"
-                logger.warning("标的搜索 AI 扩展不可用：%s", exc)
                 expansions = []
+                ai_message = "请先在“研究模型”中配置并选择一个日常分析模型。"
+            else:
+                try:
+                    expansions = self._expand_with_configured_model(query, market, model_config)
+                except Exception as exc:  # noqa: BLE001
+                    ai_available = False
+                    ai_message = "AI 描述理解暂不可用，请检查所选模型的密钥、余额和连接配置。"
+                    logger.warning("标的搜索 AI 扩展不可用：%s", exc)
+                    expansions = []
 
             for index, term in enumerate(expansions):
                 if self._normalize(term) == self._normalize(query):
@@ -118,8 +124,10 @@ class InstrumentSearchService:
             status = "matched"
             message = ai_message or f"找到 {len(results)} 个经过证券目录验证的候选结果。"
         elif ai_used and not ai_available:
-            status = "ai_unavailable"
+            status = "model_required" if model_config is None else "ai_unavailable"
             message = "没有直接匹配结果，且 AI 描述理解暂不可用。充值后可直接重试。"
+            if model_config is None or ai_message:
+                message = ai_message
         else:
             status = "not_found"
             message = "未找到可验证的公开上市主体。该公司可能尚未上市，也可能使用了其他正式名称。"
@@ -291,19 +299,32 @@ class InstrumentSearchService:
         return re.sub(r"[^\w\u4e00-\u9fff]", "", value)
 
     @staticmethod
-    def _expand_with_configured_model(query: str, market: Market) -> list[str]:
+    def _expand_with_configured_model(
+        query: str,
+        market: Market,
+        model_config: dict | None = None,
+    ) -> list[str]:
         logger.debug(
             "Expanding query with configured model: query=%r market=%s",
             query, market,
         )
         config = DEFAULT_CONFIG.copy()
+        if model_config:
+            config.update(model_config)
+        client_kwargs = {
+            "timeout": 25,
+            "max_retries": 0,
+            "temperature": 0,
+        }
+        # 模型配置中心保存的密钥通过 graph_overrides 传入；它优先于环境变量，
+        # 这样公司检索使用的就是首页当前选择的“日常分析模型”。
+        if config.get("llm_api_key"):
+            client_kwargs["api_key"] = config["llm_api_key"]
         client = create_llm_client(
             provider=config["llm_provider"],
             model=config["quick_think_llm"],
             base_url=config.get("backend_url"),
-            timeout=25,
-            max_retries=0,
-            temperature=0,
+            **client_kwargs,
         )
         llm = client.get_llm()
         market_hint = {

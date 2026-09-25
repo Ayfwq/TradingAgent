@@ -82,7 +82,11 @@ def test_fundamentals_analyst_gets_earnings_forecast_only_for_ashares():
 
 
 @pytest.mark.unit
-def test_news_analyst_gets_insider_tool_for_stocks_not_crypto():
+def test_news_analyst_gets_insider_tool_for_stocks_not_crypto(monkeypatch):
+    monkeypatch.setattr(
+        "tradingagents.agents.analysts.news_analyst.get_news.func",
+        lambda *args, **kwargs: "测试新闻",
+    )
     stock_llm = _CapturingLLM()
     create_news_analyst(stock_llm)(_state())
     assert "get_insider_transactions" in stock_llm.tool_names
@@ -93,7 +97,28 @@ def test_news_analyst_gets_insider_tool_for_stocks_not_crypto():
 
 
 @pytest.mark.unit
-def test_every_bound_ashare_tool_has_a_matching_executor():
+def test_news_analyst_always_prefetches_company_news(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "tradingagents.agents.analysts.news_analyst.get_news.func",
+        lambda ticker, start, end: calls.append((ticker, start, end)) or "来源：测试源\n测试新闻",
+    )
+    llm = _CapturingLLM()
+
+    create_news_analyst(llm)(_state("0700.HK"))
+
+    assert calls == [("0700.HK", "2026-09-08", "2026-09-15")]
+    # Since target news is already supplied in the prompt, the LLM cannot make
+    # an accidental second call and consume another provider request/quota.
+    assert "get_news" not in llm.tool_names
+
+
+@pytest.mark.unit
+def test_every_bound_ashare_tool_has_a_matching_executor(monkeypatch):
+    monkeypatch.setattr(
+        "tradingagents.agents.analysts.news_analyst.get_news.func",
+        lambda *args, **kwargs: "测试新闻",
+    )
     nodes = TradingAgentsGraph._create_tool_nodes(None)
     cases = (
         ("market", create_market_analyst),

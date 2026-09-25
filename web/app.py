@@ -100,6 +100,7 @@ class InstrumentSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=300)
     market: Literal["auto", "a_share", "hk", "us"] = "auto"
     use_ai: bool = True
+    model_profile_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("query")
     @classmethod
@@ -151,6 +152,7 @@ app.include_router(news_router)
 
 _records: dict[str, AnalysisRecord] = {}
 _records_lock = threading.Lock()
+_analysis_artifact_contents: dict[str, dict[str, str]] = {}
 _analysis_gate = asyncio.Semaphore(1)
 
 # 记录应用启动时间
@@ -248,6 +250,7 @@ _PROGRESS_ARTIFACT_SPECS = (
     ("risk_debate_state", "风险评估", "risk"),
     ("final_trade_decision", "最终决策", "final"),
 )
+_PROGRESS_ARTIFACT_TITLES = {key: title for key, title, _ in _PROGRESS_ARTIFACT_SPECS}
 
 
 def _progress_value(state: dict, key: str) -> str:
@@ -362,6 +365,12 @@ async def _execute(task_id: str, payload: AnalysisRequest) -> None:
                     return
                 last_progress_signature = signature
                 last_progress_phase = phase
+                with _records_lock:
+                    _analysis_artifact_contents[task_id] = {
+                        key: value
+                        for key, _, _ in _PROGRESS_ARTIFACT_SPECS
+                        if (value := _progress_value(state, key))
+                    }
                 _update_record(task_id, phase=phase, artifacts=artifacts)
 
             result = await asyncio.to_thread(_run_analysis, payload, on_progress)
@@ -425,12 +434,19 @@ async def search_instruments(payload: InstrumentSearchRequest) -> dict:
         "Instrument search request: query=%r market=%s use_ai=%s",
         payload.query, payload.market, payload.use_ai,
     )
+    model_config = None
+    if payload.model_profile_id:
+        try:
+            model_config = model_profile_service.graph_overrides(payload.model_profile_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail="所选研究模型不存在，请重新选择") from exc
     try:
         result = await asyncio.to_thread(
             instrument_search_service.search,
             payload.query,
             payload.market,
             use_ai=payload.use_ai,
+            model_config=model_config,
         )
         logger.debug(
             "Instrument search completed for %r: %d result(s)",
@@ -456,7 +472,8 @@ async def reports(
     ticker: str = Query(default="", max_length=24),
     start_date: str = Query(default="", max_length=10),
     end_date: str = Query(default="", max_length=10),
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=10, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> dict:
     return await asyncio.to_thread(
         list_reports,
@@ -465,6 +482,7 @@ async def reports(
         start_date=start_date,
         end_date=end_date,
         limit=limit,
+        offset=offset,
     )
 
 
@@ -648,6 +666,26 @@ async def get_analysis(task_id: str) -> AnalysisRecord:
     if record is None:
         raise HTTPException(status_code=404, detail="分析任务不存在或服务已重启")
     return record
+
+
+@app.get("/api/analyses/{task_id}/artifacts/{artifact_id}")
+async def get_analysis_artifact(task_id: str, artifact_id: str) -> dict[str, str]:
+    """Return a full progressive report section on demand, keeping polling payloads small."""
+    with _records_lock:
+        record = _records.get(task_id)
+        content = _analysis_artifact_contents.get(task_id, {}).get(artifact_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="分析任务不存在或服务已重启")
+    title = _PROGRESS_ARTIFACT_TITLES.get(artifact_id)
+    if title is None or content is None:
+        raise HTTPException(status_code=404, detail="该阶段报告尚未生成")
+    return {
+        "id": artifact_id,
+        "title": title,
+        "ticker": record.ticker,
+        "trade_date": record.trade_date,
+        "content": content,
+    }
 
 
 # 必须在所有业务路由注册后暴露，instrumentator 才能按 FastAPI 路由模板生成

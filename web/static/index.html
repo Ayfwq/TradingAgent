@@ -6,7 +6,7 @@
     <meta name="description" content="投研智报：多智能体股票投研与 AI 资讯日报" />
     <link rel="icon" type="image/png" href="/static/touyan-zhibao-icon.png?v=1" />
     <title>投研智报 · 股票投研与 AI 日报</title>
-    <link rel="stylesheet" href="/static/styles.css?v=process-design-1" />
+    <link rel="stylesheet" href="/static/styles.css?v=history-pages-2" />
   </head>
   <body>
     <div class="ambient ambient-one"></div>
@@ -37,13 +37,6 @@
             <span>分析日期</span>
             <input id="trade-date" name="trade_date" type="date" required />
           </label>
-          <label class="field">
-            <span>资产类型</span>
-            <select id="asset-type" name="asset_type">
-              <option value="stock">股票</option>
-              <option value="crypto">加密资产</option>
-            </select>
-          </label>
           <label class="field model-field">
             <span>研究模型</span>
             <div class="model-select-row">
@@ -58,7 +51,7 @@
           </button>
         </form>
         <div class="search-helper-row">
-          <p class="form-note" id="form-note">示例：AAPL、NVDA、600519.SS、0700.HK、BTC-USD</p>
+          <p class="form-note" id="form-note">示例：AAPL、NVDA、600519.SS、0700.HK</p>
           <button class="locator-trigger" id="locator-trigger" type="button"><span>✦</span> 不知道代码？让 AI 帮你找公司</button>
         </div>
         <section class="history-picker-panel" aria-label="历史研报">
@@ -66,23 +59,19 @@
             <div>
               <span class="process-kicker">REPORT ARCHIVE</span>
               <h2>历史研报</h2>
-              <p>按股票代码查找以前生成的研报，列表中会显示分析日期和生成时间。</p>
+              <p>按股票代码查找以前生成的研报，每页展示 10 份，按生成时间排序。</p>
             </div>
-            <span class="history-picker-state" id="history-picker-state" aria-live="polite"></span>
           </div>
           <div class="history-picker-row">
             <form class="history-filter" id="history-filter">
               <label for="history-query"><span>股票代码</span><input id="history-query" placeholder="例如 NVDA 或 600519.SS" autocomplete="off" /></label>
               <button class="secondary-button" type="submit">查找</button>
             </form>
-            <label class="history-picker" for="history-report-select">
-              <span>选择研报</span>
-              <select id="history-report-select">
-                <option value="">选择已生成的研报</option>
-              </select>
-            </label>
-            <button class="ghost-button" id="history-open" type="button" disabled>查看研报</button>
           </div>
+          <div class="history-report-list" id="history-report-list" aria-live="polite"></div>
+          <nav class="history-pagination hidden" id="history-pagination" aria-label="历史研报分页">
+            <div class="history-page-controls" id="history-page-controls"></div>
+          </nav>
         </section>
 
         <section class="locator-panel modal-backdrop hidden" id="locator-panel" aria-label="AI 股票定位助手">
@@ -173,41 +162,75 @@
       </section>
 
       <section class="process-card hidden" id="process" aria-live="polite">
-        <div class="process-copy">
-          <span class="process-kicker">ANALYSIS IN PROGRESS</span>
-          <h2 id="process-title">研究团队正在协作</h2>
-          <p id="process-message">正在连接研究流水线，稍后会陆续出现阶段性产物。</p>
-        </div>
-        <div class="agent-orbit" aria-label="实时研究产物">
-          <div class="orbit orbit-one"></div>
-          <div class="orbit orbit-two"></div>
-          <div class="core">
-            <span class="core-beacon"></span>
-            <div class="core-content">
-              <small id="process-core-kicker">LIVE OUTPUT</small>
-              <strong id="process-core-label">准备中</strong>
+        <header class="process-heading">
+          <div class="process-copy">
+            <span class="process-kicker">ANALYSIS IN PROGRESS</span>
+            <div class="process-identity">
+              <h2 id="process-stock-title">— 投资研究</h2>
+              <span id="process-market-badge" class="process-market-badge">股票</span>
+            </div>
+            <h3 id="process-title">研究团队正在协作</h3>
+            <p id="process-message">正在连接研究流水线，稍后会陆续出现阶段性产物。</p>
+          </div>
+          <div class="process-status" id="process-status"><i></i><span>分析进行中</span></div>
+        </header>
+
+        <div class="process-main">
+          <div class="report-ready-notice hidden" id="report-ready-notice" role="status">
+            <span class="report-ready-check" aria-hidden="true">✓</span>
+            <strong>新报告已生成，可立即查看</strong>
+            <button class="report-ready-button" id="open-completed-report" type="button">打开报告 <span aria-hidden="true">→</span></button>
+          </div>
+          <div class="agent-orbit stage-visual" id="stage-visual" aria-label="正在收集市场资料">
+            <img id="process-stage-image" data-stage="data-gathering" src="/static/stages/data-gathering.jpg?v=stage-visuals-1" alt="多源市场资料汇聚" />
+            <div class="stage-visual-caption" aria-live="polite">
+              <span class="stage-visual-pulse" aria-hidden="true"></span>
+              <span><small id="process-core-kicker">DATA COLLECTION</small><strong id="process-core-label">市场资料汇集中</strong></span>
             </div>
           </div>
-          <div class="agent agent-a"><span class="agent-symbol">技</span><span class="agent-name">技术面</span></div>
-          <div class="agent agent-b"><span class="agent-symbol">基</span><span class="agent-name">基本面</span></div>
-          <div class="agent agent-c"><span class="agent-symbol">闻</span><span class="agent-name">新闻</span></div>
-          <div class="agent agent-d"><span class="agent-symbol">情</span><span class="agent-name">情绪</span></div>
-          <div class="artifact-console">
-            <div class="artifact-console-head">
-              <span>LIVE ARTIFACTS</span>
-              <strong id="artifact-count">0 份产物</strong>
+          <div class="stages" id="stages">
+            <div class="stage active"><i></i><span>收集市场资料</span></div>
+            <div class="stage"><i></i><span>多维分析</span></div>
+            <div class="stage"><i></i><span>多空研究</span></div>
+            <div class="stage"><i></i><span>风险评估</span></div>
+            <div class="stage"><i></i><span>形成研报</span></div>
+          </div>
+        </div>
+
+        <aside class="artifact-sidebar" aria-label="实时产物与已完成报告">
+          <section class="artifact-section">
+            <div class="artifact-section-heading">
+              <div><span class="artifact-eyebrow">LIVE ARTIFACTS</span><h3>实时产物</h3></div>
+              <span class="artifact-section-count" id="live-artifact-count">等待中</span>
+            </div>
+            <div id="live-artifact" class="live-artifact-card">
+              <div class="artifact-empty">研究产物生成后会显示在这里。</div>
+            </div>
+          </section>
+          <section class="artifact-section completed-section">
+            <div class="artifact-section-heading">
+              <div><span class="artifact-eyebrow">COMPLETED OUTPUTS</span><h3>已生成报告</h3></div>
+              <span class="artifact-section-count" id="artifact-count">0 份</span>
             </div>
             <div class="artifact-stream" id="artifact-stream" aria-live="polite">
-              <div class="artifact-empty">正在等待第一份研究产物…</div>
+              <div class="artifact-empty">已生成的阶段报告会即时归档在这里。</div>
             </div>
-          </div>
-        </div>
-        <div class="stages" id="stages">
-          <div class="stage active"><i></i><span>收集市场资料</span></div>
-          <div class="stage"><i></i><span>多维分析</span></div>
-          <div class="stage"><i></i><span>多空研究</span></div>
-          <div class="stage"><i></i><span>风险评估</span></div>
-          <div class="stage"><i></i><span>形成研报</span></div>
+            <div class="final-report-card hidden" id="final-report-card"></div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="artifact-detail-modal modal-backdrop hidden" id="artifact-detail-modal" aria-label="阶段报告详情">
+        <div class="artifact-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="artifact-detail-title">
+          <header class="artifact-detail-header">
+            <div>
+              <span class="process-kicker" id="artifact-detail-ticker">阶段报告</span>
+              <h2 id="artifact-detail-title">分析产物</h2>
+              <p id="artifact-detail-date"></p>
+            </div>
+            <button class="locator-close" id="artifact-detail-close" type="button" aria-label="关闭阶段报告">×</button>
+          </header>
+          <article class="artifact-detail-content" id="artifact-detail-content"></article>
         </div>
       </section>
 
@@ -246,26 +269,11 @@
         </div>
       </section>
 
-      <section class="history-results-modal modal-backdrop hidden" id="history-results-modal" aria-label="历史研报查询结果">
-        <div class="history-results-dialog" role="dialog" aria-modal="true" aria-labelledby="history-results-title">
-          <div class="history-results-header">
-            <div>
-              <span class="process-kicker">REPORT SEARCH</span>
-              <h2 id="history-results-title">查询历史研报</h2>
-              <p id="history-results-query">输入股票代码后，在这里查看匹配结果。</p>
-            </div>
-            <button class="locator-close" id="history-results-close" type="button" aria-label="关闭查询结果">×</button>
-          </div>
-          <div class="history-results-state" id="history-results-state" aria-live="polite"></div>
-          <div class="history-results-list" id="history-results-list"></div>
-        </div>
-      </section>
-
       <section id="news-module-root" class="hidden" aria-label="AI 资讯模块"></section>
     </main>
 
     <footer>投研智报 · 多智能体股票投研与 AI 资讯日报</footer>
-    <script src="/static/app.js?v=provider-icons-9" defer></script>
+    <script src="/static/app.js?v=history-pages-2" defer></script>
     <script src="/static/news_loader.js?v=4" defer></script>
   </body>
 </html>

@@ -10,11 +10,26 @@ const locatorState = document.querySelector('#locator-state');
 const locatorResults = document.querySelector('#locator-results');
 const processCoreKicker = document.querySelector('#process-core-kicker');
 const processCoreLabel = document.querySelector('#process-core-label');
+const processStageImage = document.querySelector('#process-stage-image');
+const stageVisual = document.querySelector('#stage-visual');
 const artifactCount = document.querySelector('#artifact-count');
 const artifactStream = document.querySelector('#artifact-stream');
+const processStockTitle = document.querySelector('#process-stock-title');
+const processMarketBadge = document.querySelector('#process-market-badge');
+const processStatus = document.querySelector('#process-status');
+const liveArtifactCount = document.querySelector('#live-artifact-count');
+const liveArtifact = document.querySelector('#live-artifact');
+const finalReportCard = document.querySelector('#final-report-card');
+const reportReadyNotice = document.querySelector('#report-ready-notice');
+const artifactDetailModal = document.querySelector('#artifact-detail-modal');
+const artifactDetailTitle = document.querySelector('#artifact-detail-title');
+const artifactDetailTicker = document.querySelector('#artifact-detail-ticker');
+const artifactDetailDate = document.querySelector('#artifact-detail-date');
+const artifactDetailContent = document.querySelector('#artifact-detail-content');
 let pollTimer = null;
 let stageTimer = null;
 let currentStage = 0;
+let currentAnalysisRecord = null;
 
 const today = new Date();
 const localToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -22,6 +37,14 @@ document.querySelector('#trade-date').value = localToday;
 document.querySelector('#trade-date').max = localToday;
 
 document.querySelector('#locator-trigger').addEventListener('click', () => {
+  if (!modelProfilesLoaded) {
+    loadModelCenter().catch(() => {});
+  }
+  if (!modelProfileSelect.value) {
+    note.textContent = '请先选择研究模型。';
+    note.classList.add('error');
+    return;
+  }
   openModal(locatorPanel);
   window.setTimeout(() => document.querySelector('#company-query').focus(), 300);
 });
@@ -34,7 +57,24 @@ locatorPanel.addEventListener('click', (event) => {
   if (event.target === locatorPanel) closeModal(locatorPanel);
 });
 
+// 公司描述框：Enter 提交，Shift+Enter 换行；中文输入法组合期间不抢占 Enter。
+document.querySelector('#company-query').addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  locatorForm.requestSubmit();
+});
+
 function renderLocatorResults(data) {
+  if (data.status === 'model_required') {
+    locatorResults.innerHTML = `
+      <div class="locator-empty">
+        <strong>请先配置研究模型</strong>
+        <p>${escapeHtml(data.message || '公司描述理解需要一个可用的日常分析模型。')}</p>
+        <button class="secondary-button locator-configure-model" type="button">打开模型配置</button>
+      </div>`;
+    locatorResults.querySelector('.locator-configure-model').addEventListener('click', openModelCenter);
+    return;
+  }
   if (!data.results?.length) {
     locatorResults.innerHTML = `<div class="locator-empty"><strong>未找到已验证的股票代码</strong><p>${escapeHtml(data.message)}</p></div>`;
     return;
@@ -60,7 +100,6 @@ function renderLocatorResults(data) {
   locatorResults.querySelectorAll('[data-ticker]').forEach((button) => {
     button.addEventListener('click', () => {
       document.querySelector('#ticker').value = button.dataset.ticker;
-      document.querySelector('#asset-type').value = 'stock';
       note.textContent = `已选择 ${button.dataset.ticker}，可以开始生成研报。`;
       note.classList.remove('error');
       closeModal(locatorPanel);
@@ -82,6 +121,17 @@ locatorForm.addEventListener('submit', async (event) => {
   locatorResults.innerHTML = '';
   locatorState.classList.remove('hidden');
   try {
+    // 与首页“研究模型”保持一致：必须使用用户明确选择的配置。
+    if (!modelProfilesLoaded) {
+      await loadModelCenter();
+    }
+    const modelProfileId = modelProfileSelect.value;
+    if (!modelProfileId) {
+      locatorState.classList.add('hidden');
+      renderLocatorResults({ status: 'model_required', message: '请先添加并选择一个研究模型，系统会使用其中的日常分析模型。' });
+      return;
+    }
+    modelProfileSelect.value = modelProfileId;
     const response = await fetch('/api/instruments/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -89,6 +139,7 @@ locatorForm.addEventListener('submit', async (event) => {
         query,
         market: document.querySelector('#company-market').value,
         use_ai: true,
+        model_profile_id: modelProfileId,
       }),
     });
     const data = await response.json();
@@ -109,23 +160,21 @@ const escapeHtml = (value = '') => String(value)
   .replaceAll('"', '&quot;')
   .replaceAll("'", '&#039;');
 
-const historyReportSelect = document.querySelector('#history-report-select');
-const historyOpenButton = document.querySelector('#history-open');
-const historyPickerState = document.querySelector('#history-picker-state');
+const historyPagination = document.querySelector('#history-pagination');
 const historyFilter = document.querySelector('#history-filter');
 const historyQuery = document.querySelector('#history-query');
+const historyReportList = document.querySelector('#history-report-list');
+const historyPageControls = document.querySelector('#history-page-controls');
 const reportDeleteButton = document.querySelector('#report-delete');
 const reportCloseButton = document.querySelector('#report-close');
-const historyResultsModal = document.querySelector('#history-results-modal');
-const historyResultsState = document.querySelector('#history-results-state');
-const historyResultsList = document.querySelector('#history-results-list');
-const historyResultsQuery = document.querySelector('#history-results-query');
-const historyResultsClose = document.querySelector('#history-results-close');
+const HISTORY_PAGE_SIZE = 10;
+let historyCurrentPage = 1;
+let historyTotal = 0;
+let historyLoadSequence = 0;
 let currentReportId = '';
 
 function closeModal(modal) {
   modal.classList.add('hidden');
-  if (modal === reportPanel) restoreHistoryPickerState();
   if (!document.querySelector('.modal-backdrop:not(.hidden)')) document.body.classList.remove('modal-open');
 }
 
@@ -134,121 +183,107 @@ function openModal(modal) {
   document.body.classList.add('modal-open');
 }
 
-function reportDateLabel(item) {
-  const generated = item.generated_at ? item.generated_at.replace('T', ' ').slice(0, 16) : '时间未知';
-  return `股票代码：${item.ticker} ｜ 分析日期：${item.trade_date || '日期未知'} ｜ 生成时间：${generated}`;
+function renderHistoryPagination(total, page) {
+  const pageCount = Math.max(1, Math.ceil(total / HISTORY_PAGE_SIZE));
+  historyPagination.classList.toggle('hidden', pageCount <= 1);
+  const candidates = [...new Set([1, page - 1, page, page + 1, pageCount])]
+    .filter((number) => number >= 1 && number <= pageCount)
+    .sort((a, b) => a - b);
+  const pageItems = [];
+  candidates.forEach((number, index) => {
+    if (index && number - candidates[index - 1] > 1) pageItems.push('<span class="history-page-ellipsis" aria-hidden="true">…</span>');
+    pageItems.push(`<button class="history-page-number${number === page ? ' is-current' : ''}" type="button" data-history-page="${number}"${number === page ? ' aria-current="page"' : ''}>${number}</button>`);
+  });
+  historyPageControls.innerHTML = `
+    <button class="history-page-arrow" type="button" data-history-page="${page - 1}"${page <= 1 ? ' disabled' : ''} aria-label="上一页">‹</button>
+    ${pageItems.join('')}
+    <button class="history-page-arrow" type="button" data-history-page="${page + 1}"${page >= pageCount ? ' disabled' : ''} aria-label="下一页">›</button>`;
 }
 
-function restoreHistoryPickerState() {
-  const count = Math.max(0, historyReportSelect.options.length - 1);
-  historyPickerState.textContent = count ? `已保存 ${count} 份研报` : '完成分析后，研报会自动出现在这里';
+function renderHistoryPicker(items, page, total) {
+  historyTotal = total;
+  historyCurrentPage = page;
+  if (!items.length) {
+    historyReportList.innerHTML = '<div class="history-report-empty"><span class="history-empty-mark">⌕</span><strong>暂时没有匹配的研报</strong><p>可以更换股票代码搜索，或先生成一份新研报。</p></div>';
+  } else {
+    historyReportList.innerHTML = items.map((item, index) => {
+      const generated = item.generated_at ? item.generated_at.replace('T', ' ').slice(0, 16) : '时间未知';
+      const assetLabel = item.asset_type === 'crypto' ? 'DIGITAL ASSET' : 'EQUITY RESEARCH';
+      return `<article class="history-report-card">
+        <div class="history-report-card-top">
+          <span class="history-report-code">${escapeHtml(item.ticker)}</span>
+          <span class="history-report-kind">${assetLabel}</span>
+          <span class="history-report-index">${String((page - 1) * HISTORY_PAGE_SIZE + index + 1).padStart(2, '0')}</span>
+        </div>
+        <h3>${escapeHtml(item.ticker)} <span>投资研究报告</span></h3>
+        <div class="history-report-meta">
+          <span><small>分析日期</small><strong>${escapeHtml(item.trade_date || '日期未知')}</strong></span>
+          <span><small>生成时间</small><strong>${escapeHtml(generated)}</strong></span>
+        </div>
+        <button class="history-report-open" type="button" data-history-report-id="${escapeHtml(item.id)}"><span>查看完整研报</span><b aria-hidden="true">→</b></button>
+      </article>`;
+    }).join('');
+  }
+  renderHistoryPagination(total, page);
 }
 
-function renderHistoryPicker(items) {
-  historyReportSelect.innerHTML = '<option value="">选择已生成的研报</option>' + items.map((item) => (
-    `<option value="${escapeHtml(item.id)}">${escapeHtml(reportDateLabel(item))}</option>`
-  )).join('');
-  historyOpenButton.disabled = !items.length;
-  restoreHistoryPickerState();
-}
-
-async function loadHistoryPicker(query = '') {
+async function loadHistoryPicker(query = historyQuery.value.trim(), page = 1) {
+  const requestSequence = ++historyLoadSequence;
+  historyReportList.innerHTML = '<div class="history-report-empty"><strong>正在读取历史研报…</strong></div>';
   try {
-    const params = new URLSearchParams({ limit: '200' });
+    const params = new URLSearchParams({
+      limit: String(HISTORY_PAGE_SIZE),
+      offset: String((page - 1) * HISTORY_PAGE_SIZE),
+    });
     if (query) params.set('query', query);
     const response = await fetch(`/api/reports?${params.toString()}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('历史研报暂时无法读取');
     const data = await response.json();
-    renderHistoryPicker(data.reports || []);
+    if (requestSequence !== historyLoadSequence) return;
+    const pageCount = Math.max(1, Math.ceil(Number(data.total || 0) / HISTORY_PAGE_SIZE));
+    if (page > pageCount) {
+      await loadHistoryPicker(query, pageCount);
+      return;
+    }
+    renderHistoryPicker(data.reports || [], page, Number(data.total || 0));
   } catch (error) {
-    historyPickerState.textContent = error.message;
-    historyOpenButton.disabled = true;
+    if (requestSequence !== historyLoadSequence) return;
+    historyReportList.innerHTML = `<div class="history-report-empty"><strong>${escapeHtml(error.message || '历史研报暂时无法读取')}</strong><p>请稍后重试。</p></div>`;
+    historyPageControls.innerHTML = '';
+    historyPagination.classList.add('hidden');
   }
 }
 
 async function openHistoricalReportById(reportId) {
   if (!reportId) return;
-  historyOpenButton.disabled = true;
-  historyPickerState.textContent = '正在打开研报…';
+  const trigger = [...historyReportList.querySelectorAll('[data-history-report-id]')]
+    .find((button) => button.dataset.historyReportId === reportId);
+  if (trigger) { trigger.disabled = true; trigger.innerHTML = '<span>正在打开…</span><b aria-hidden="true">…</b>'; }
   try {
     const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('历史报告不存在或已损坏');
     const historical = await response.json();
     showReport({ ...historical, status: 'completed', phase: '历史报告' });
   } catch (error) {
-    historyPickerState.textContent = error.message;
+    window.alert(error.message || '历史研报暂时无法打开');
   } finally {
-    historyOpenButton.disabled = false;
+    if (trigger?.isConnected) { trigger.disabled = false; trigger.innerHTML = '<span>查看完整研报</span><b aria-hidden="true">→</b>'; }
   }
 }
 
-async function openHistoricalReport() {
-  await openHistoricalReportById(historyReportSelect.value);
-}
-
-function renderHistorySearchResults(items, query) {
-  historyResultsQuery.textContent = `股票代码：${query} · 找到 ${items.length} 份研报`;
-  if (!items.length) {
-    historyResultsState.textContent = '';
-    historyResultsList.innerHTML = '<div class="history-results-empty"><strong>未找到对应研报</strong><p>请检查股票代码是否正确，或先生成一份新的研报。</p></div>';
-    return;
-  }
-  historyResultsState.textContent = '请选择一份研报查看完整内容。';
-  historyResultsList.innerHTML = items.map((item) => {
-    const generated = item.generated_at ? item.generated_at.replace('T', ' ').slice(0, 16) : '时间未知';
-    return `<article class="history-result-card">
-      <div class="history-result-main">
-        <span class="history-result-ticker">${escapeHtml(item.ticker)}</span>
-        <strong>投资研究报告</strong>
-        <p>分析日期：${escapeHtml(item.trade_date || '日期未知')} · 生成时间：${escapeHtml(generated)}</p>
-      </div>
-      <button class="secondary-button" type="button" data-history-report-id="${escapeHtml(item.id)}">查看研报 →</button>
-    </article>`;
-  }).join('');
-  historyResultsList.querySelectorAll('[data-history-report-id]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      historyReportSelect.value = button.dataset.historyReportId;
-      closeModal(historyResultsModal);
-      await openHistoricalReportById(button.dataset.historyReportId);
-    });
-  });
-}
-
-async function searchHistoryReports(query) {
-  openModal(historyResultsModal);
-  historyResultsQuery.textContent = `股票代码：${query}`;
-  historyResultsState.textContent = '正在查找研报…';
-  historyResultsList.innerHTML = '';
-  try {
-    const params = new URLSearchParams({ limit: '200', query });
-    const response = await fetch(`/api/reports?${params.toString()}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error('历史研报查询失败');
-    const data = await response.json();
-    renderHistorySearchResults(data.reports || [], query);
-  } catch (error) {
-    historyResultsState.textContent = error.message;
-    historyResultsList.innerHTML = '<div class="history-results-empty"><strong>暂时无法查询</strong><p>请稍后重试。</p></div>';
-  }
-}
-
-historyReportSelect.addEventListener('change', () => {
-  historyOpenButton.disabled = !historyReportSelect.value;
-});
-historyOpenButton.addEventListener('click', openHistoricalReport);
 historyFilter.addEventListener('submit', (event) => {
   event.preventDefault();
-  const query = historyQuery.value.trim();
-  if (!query) {
-    openModal(historyResultsModal);
-    historyResultsQuery.textContent = '请输入股票代码';
-    historyResultsState.textContent = '请输入股票代码';
-    historyResultsList.innerHTML = '<div class="history-results-empty"><strong>还没有输入股票代码</strong><p>例如：NVDA、600519.SS 或 0700.HK。</p></div>';
-    return;
-  }
-  searchHistoryReports(query);
+  loadHistoryPicker(historyQuery.value.trim(), 1);
 });
-historyResultsClose.addEventListener('click', () => closeModal(historyResultsModal));
-historyResultsModal.addEventListener('click', (event) => { if (event.target === historyResultsModal) closeModal(historyResultsModal); });
+historyPageControls.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-history-page]');
+  if (!button || button.disabled) return;
+  loadHistoryPicker(historyQuery.value.trim(), Number(button.dataset.historyPage));
+});
+historyReportList.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-history-report-id]');
+  if (button) openHistoricalReportById(button.dataset.historyReportId);
+});
 
 const modelSettings = document.querySelector('#model-settings');
 const modelProfileSelect = document.querySelector('#model-profile');
@@ -262,6 +297,7 @@ const modelStatus = document.querySelector('#model-form-status');
 let modelProfiles = [];
 let modelTemplates = [];
 let discoveredModelOptions = [];
+let modelProfilesLoaded = false;
 
 const providerIconMeta = {
   custom: { glyph: '✦', tone: 'mint' },
@@ -272,7 +308,7 @@ const providerIconMeta = {
   'glm-cn': { glyph: 'Z', tone: 'slate', logo: 'https://open.bigmodel.cn/static/images/favicon.png' },
   'qwen-cn': { glyph: '阿', tone: 'orange', logo: 'https://assets.alicdn.com/g/qwenweb/qwen-chat-fe/0.2.91/static/images/qwen-logo.svg' },
   qwen: { glyph: '阿', tone: 'orange', logo: 'https://assets.alicdn.com/g/qwenweb/qwen-chat-fe/0.2.91/static/images/qwen-logo.svg' },
-  'xiaomi-mimo': { glyph: 'mi', tone: 'xiaomi', logo: '/static/xiaomi-mi.svg' },
+  'xiaomi-mimo': { glyph: 'mi', tone: 'xiaomi', logo: '/static/xiaomi-official.png?v=mi-official-1' },
   siliconflow: { glyph: 'SF', tone: 'indigo', logo: 'https://www.siliconflow.cn/favicon.ico' },
   'z-ai': { glyph: 'Z', tone: 'violet', logo: 'https://z-cdn.chatglm.cn/z-ai/static/logo.svg' },
   openrouter: { glyph: '◈', tone: 'violet', logo: 'https://openrouter.ai/favicon.ico' },
@@ -392,8 +428,11 @@ function populateModelForm(profile) {
 
 function renderModelProfiles() {
   const selected = modelProfileSelect.value;
-  modelProfileSelect.innerHTML = '<option value="">请选择已添加的模型</option>' + modelProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}">${escapeHtml(profile.name)} · ${escapeHtml(profile.quick_model)}</option>`).join('');
-  if (modelProfiles.some((profile) => profile.id === selected)) modelProfileSelect.value = selected;
+  const activeProfileId = modelProfiles.some((profile) => profile.id === selected)
+    ? selected
+    : '';
+  modelProfileSelect.innerHTML = '<option value="">请选择已添加的模型</option>' + modelProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}"${profile.id === activeProfileId ? ' selected' : ''}>${escapeHtml(profile.name)} · ${escapeHtml(profile.quick_model)}</option>`).join('');
+  modelProfileSelect.value = activeProfileId;
   if (!modelProfiles.length) {
     modelProfileList.innerHTML = '<p class="profile-empty">还没有模型配置，请先添加一个模型。</p>';
     return;
@@ -403,7 +442,12 @@ function renderModelProfiles() {
   modelProfileList.querySelectorAll('.saved-profile[data-profile-id]').forEach((button) => {
     button.addEventListener('click', () => {
       const profile = modelProfiles.find((item) => item.id === button.dataset.profileId);
-      if (profile) { populateModelForm(profile); renderModelProfiles(); }
+      if (profile) {
+        // 左侧配置列表与首页下拉框必须指向同一个当前模型；否则新增模型后点击旧配置只会编辑旧配置，实际分析仍会使用新模型。
+        modelProfileSelect.value = profile.id;
+        populateModelForm(profile);
+        renderModelProfiles();
+      }
     });
   });
   modelProfileList.querySelectorAll('.saved-profile-delete[data-delete-profile-id]').forEach((button) => {
@@ -413,6 +457,13 @@ function renderModelProfiles() {
     });
   });
 }
+
+modelProfileSelect.addEventListener('change', () => {
+  const profile = modelProfiles.find((item) => item.id === modelProfileSelect.value);
+  if (profile) populateModelForm(profile);
+  else resetModelForm();
+  renderModelProfiles();
+});
 
 async function fetchModelJson(url, options = {}, action = '读取模型配置') {
   let response;
@@ -444,6 +495,7 @@ async function loadModelCenter() {
   modelTemplate.innerHTML = modelTemplates.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('');
   renderModelTemplatePicker();
   renderModelProfiles();
+  modelProfilesLoaded = true;
   if (!currentProfileId()) resetModelForm();
 }
 
@@ -539,47 +591,110 @@ loadModelCenter().catch(() => { modelProfileList.innerHTML = '<p class="profile-
 loadHistoryPicker();
 
 function inlineMarkdown(text) {
-  return escapeHtml(text)
+  const codeSpans = [];
+  const links = [];
+  let html = escapeHtml(text).replace(/`([^`]+)`/g, (_match, code) => {
+    const token = `@@CODE_SPAN_${codeSpans.length}@@`;
+    codeSpans.push(`<code>${code}</code>`);
+    return token;
+  });
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_match, label, url) => {
+    const token = `@@MARKDOWN_LINK_${links.length}@@`;
+    links.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+    return token;
+  });
+  html = html
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`(.+?)`/g, '<code>$1</code>');
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/~~(.+?)~~/g, '<del>$1</del>')
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  html = links.reduce((result, link, index) => result.replace(`@@MARKDOWN_LINK_${index}@@`, link), html);
+  return codeSpans.reduce((result, code, index) => result.replace(`@@CODE_SPAN_${index}@@`, code), html);
 }
 
 function renderMarkdown(markdown = '') {
-  const lines = markdown.split(/\r?\n/);
+  const lines = String(markdown).split(/\r?\n/);
   let html = '';
-  let inList = false;
+  let paragraph = [];
+  let listType = '';
   let tableRows = [];
+  let quoteLines = [];
+  let codeLines = null;
+  let codeLanguage = '';
 
-  const flushList = () => { if (inList) { html += '</ul>'; inList = false; } };
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    html += `<p>${inlineMarkdown(paragraph.join(' '))}</p>`;
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (listType) { html += `</${listType}>`; listType = ''; }
+  };
   const flushTable = () => {
     if (!tableRows.length) return;
-    const rows = tableRows.filter((row) => !row.every((cell) => /^:?-+:?$/.test(cell)));
+    const rows = tableRows.filter((row) => !row.every((cell) => /^:?-{3,}:?$/.test(cell)));
     if (rows.length) {
-      html += '<table><thead><tr>' + rows[0].map((cell) => `<th>${inlineMarkdown(cell)}</th>`).join('') + '</tr></thead><tbody>';
-      html += rows.slice(1).map((row) => '<tr>' + row.map((cell) => `<td>${inlineMarkdown(cell)}</td>`).join('') + '</tr>').join('');
-      html += '</tbody></table>';
+      const columns = rows[0].length;
+      const cells = (row, tag) => Array.from({ length: columns }, (_, index) => `<${tag}>${inlineMarkdown(row[index] || '')}</${tag}>`).join('');
+      html += '<div class="markdown-table-wrap"><table><thead><tr>' + cells(rows[0], 'th') + '</tr></thead><tbody>';
+      html += rows.slice(1).map((row) => `<tr>${cells(row, 'td')}</tr>`).join('');
+      html += '</tbody></table></div>';
     }
     tableRows = [];
   };
+  const flushQuote = () => {
+    if (!quoteLines.length) return;
+    html += `<blockquote><p>${inlineMarkdown(quoteLines.join(' '))}</p></blockquote>`;
+    quoteLines = [];
+  };
+  const flushBlocks = () => { flushParagraph(); flushList(); flushTable(); flushQuote(); };
 
   for (const raw of lines) {
     const line = raw.trim();
-    if (line.includes('|') && line.startsWith('|') && line.endsWith('|')) {
-      flushList();
-      tableRows.push(line.slice(1, -1).split('|').map((cell) => cell.trim()));
+    if (codeLines) {
+      if (/^```\s*$/.test(line)) {
+        const languageClass = codeLanguage && /^[a-z0-9_-]+$/i.test(codeLanguage) ? ` class="language-${escapeHtml(codeLanguage)}"` : '';
+        html += `<pre><code${languageClass}>${escapeHtml(codeLines.join('\n'))}</code></pre>`;
+        codeLines = null;
+        codeLanguage = '';
+      } else codeLines.push(raw);
+      continue;
+    }
+    const fence = line.match(/^```\s*([a-z0-9_-]*)\s*$/i);
+    if (fence) { flushBlocks(); codeLines = []; codeLanguage = fence[1]; continue; }
+
+    if (line.includes('|') && (line.startsWith('|') || line.endsWith('|'))) {
+      flushParagraph(); flushList(); flushQuote();
+      tableRows.push(line.replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim()));
       continue;
     }
     flushTable();
-    if (!line) { flushList(); html += '<br />'; continue; }
-    if (line.startsWith('### ')) { flushList(); html += `<h3>${inlineMarkdown(line.slice(4))}</h3>`; }
-    else if (line.startsWith('## ')) { flushList(); html += `<h2>${inlineMarkdown(line.slice(3))}</h2>`; }
-    else if (line.startsWith('# ')) { flushList(); html += `<h1>${inlineMarkdown(line.slice(2))}</h1>`; }
-    else if (/^[-*] /.test(line)) {
-      if (!inList) { html += '<ul>'; inList = true; }
-      html += `<li>${inlineMarkdown(line.slice(2))}</li>`;
-    } else { flushList(); html += `<p>${inlineMarkdown(line)}</p>`; }
+    if (!line) { flushBlocks(); continue; }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    const unordered = line.match(/^[-*+]\s+(.+)$/);
+    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (heading) {
+      flushBlocks();
+      const level = heading[1].length;
+      html += `<h${level}>${inlineMarkdown(heading[2])}</h${level}>`;
+    } else if (/^(?:[-*_]\s*){3,}$/.test(line)) {
+      flushBlocks(); html += '<hr />';
+    } else if (line.startsWith('>')) {
+      flushParagraph(); flushList();
+      quoteLines.push(line.replace(/^>\s?/, ''));
+    } else if (unordered || ordered) {
+      flushParagraph(); flushQuote();
+      const nextType = unordered ? 'ul' : 'ol';
+      if (listType !== nextType) { flushList(); listType = nextType; html += `<${listType}>`; }
+      html += `<li>${inlineMarkdown((unordered || ordered)[1])}</li>`;
+    } else {
+      flushList(); flushQuote();
+      paragraph.push(line);
+    }
   }
-  flushList(); flushTable();
+  if (codeLines) html += `<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`;
+  flushBlocks();
   return html || '<p>本章节没有可用内容。</p>';
 }
 
@@ -592,41 +707,174 @@ function stageIndexForArtifacts(artifacts = []) {
   return 0;
 }
 
+const PROCESS_STAGE_VISUALS = [
+  {
+    id: 'data-gathering',
+    src: '/static/stages/data-gathering.jpg?v=stage-visuals-1',
+    kicker: 'DATA COLLECTION',
+    label: '市场资料汇集中',
+    title: '研究团队正在收集资料',
+    message: '行情、公司信息、新闻与市场情绪资料正在汇集。',
+    alt: '行情、公司资料、新闻和市场信号同时汇入研究数据中心',
+  },
+  {
+    id: 'four-analysts',
+    src: '/static/stages/four-analysts.jpg?v=stage-visuals-1',
+    kicker: '4 ANALYSTS · PARALLEL',
+    label: '四个分析面并行中',
+    title: '四个分析面并行研究',
+    message: '技术面、基本面、新闻与市场情绪分析同步运行。',
+    alt: '技术面、基本面、新闻和市场情绪四个分析面同时开展研究',
+  },
+  {
+    id: 'bull-bear-debate',
+    src: '/static/stages/bull-bear-debate.jpg?v=stage-visuals-1',
+    kicker: 'BULL VS BEAR',
+    label: '多空观点往返讨论',
+    title: 'Bull / Bear 多空研究',
+    message: '看多与看空研究员轮流论证，再由研究经理汇总。',
+    alt: '看多与看空双方围绕证据进行讨论，由中心裁决点平衡观点',
+  },
+  {
+    id: 'risk-review',
+    src: '/static/stages/risk-review.jpg?v=stage-visuals-1',
+    kicker: 'RISK REVIEW',
+    label: '三方风险讨论中',
+    title: '风险团队正在评估',
+    message: '激进、保守与中性风险分析师依次讨论交易方案。',
+    alt: '盾牌代表风险控制，周围三个指标代表不同风险视角',
+  },
+  {
+    id: 'report-ready',
+    src: '/static/stages/report-ready.jpg?v=stage-visuals-1',
+    kicker: 'REPORT SYNTHESIS',
+    label: '最终研报整理中',
+    title: '正在形成最终研报',
+    message: '投资组合经理正在综合分析结论并生成最终决策。',
+    alt: '分析报告正在汇总并完成确认',
+  },
+];
+
+function updateStageVisual(stageIndex, record = {}) {
+  const visual = PROCESS_STAGE_VISUALS[stageIndex] || PROCESS_STAGE_VISUALS[0];
+  if (processStageImage.dataset.stage !== visual.id) {
+    processStageImage.classList.add('is-changing');
+    processStageImage.onload = () => processStageImage.classList.remove('is-changing');
+    processStageImage.onerror = () => processStageImage.classList.remove('is-changing');
+    processStageImage.src = visual.src;
+    processStageImage.dataset.stage = visual.id;
+  }
+  const isComplete = record.status === 'completed';
+  const isFailed = record.status === 'failed';
+  stageVisual.classList.toggle('is-complete', isComplete);
+  stageVisual.classList.toggle('is-failed', isFailed);
+  processStageImage.alt = visual.alt;
+  stageVisual.setAttribute('aria-label', visual.alt);
+  processCoreKicker.textContent = isComplete ? 'REPORT READY' : isFailed ? 'ANALYSIS STOPPED' : visual.kicker;
+  processCoreLabel.textContent = isComplete ? '研报已完成' : isFailed ? '分析任务中断' : visual.label;
+  document.querySelector('#process-title').textContent = isComplete
+    ? '研究任务已完成'
+    : isFailed ? '本次分析未完成' : visual.title;
+  document.querySelector('#process-message').textContent = isComplete
+    ? '完整研报已生成，阶段产物也已整理完成。'
+    : isFailed ? (record.error || '任务中断，已生成的阶段产物仍可查看。')
+      : visual.message;
+}
+
 function renderProcessArtifacts(record = {}) {
   const artifacts = Array.isArray(record.artifacts) ? [...record.artifacts] : [];
   artifacts.sort((left, right) => String(left.updated_at || '').localeCompare(String(right.updated_at || '')));
-  const latest = artifacts[artifacts.length - 1];
-  const stageIndex = stageIndexForArtifacts(artifacts);
+  currentAnalysisRecord = record;
+  const isComplete = record.status === 'completed';
+  const latest = isComplete ? null : artifacts[artifacts.length - 1];
+  const completedArtifacts = isComplete || !latest
+    ? artifacts
+    : artifacts.filter((artifact) => artifact.id !== latest.id);
+  const analystDimensions = [
+    { id: 'market_report', key: 'market', title: '技术面分析' },
+    { id: 'fundamentals_report', key: 'fundamentals', title: '基本面分析' },
+    { id: 'news_report', key: 'news', title: '新闻分析' },
+    { id: 'sentiment_report', key: 'sentiment', title: '市场情绪' },
+  ];
+  const missingDimensions = isComplete
+    ? analystDimensions.filter(({ id, key }) =>
+      !String(record.result?.reports?.[key] || '').trim())
+    : [];
+  const unavailableArtifactIds = new Set(missingDimensions.map(({ id }) => id));
+  const visibleCompletedArtifacts = completedArtifacts.filter((artifact) => !unavailableArtifactIds.has(artifact.id));
+  const stageIndex = isComplete ? 4 : stageIndexForArtifacts(artifacts);
   currentStage = stageIndex;
   stages.forEach((stage, index) => {
-    stage.className = `stage${index < stageIndex ? ' done' : index === stageIndex ? ' active' : ''}`;
+    stage.className = `stage${isComplete || index < stageIndex ? ' done' : index === stageIndex ? ' active' : ''}`;
   });
-  artifactCount.textContent = `${artifacts.length} 份产物`;
-  processCoreKicker.textContent = latest ? `${String(latest.kind || 'live').toUpperCase()} OUTPUT` : 'LIVE OUTPUT';
-  processCoreLabel.textContent = latest?.title || '准备中';
-  if (!artifacts.length) {
-    artifactStream.innerHTML = '<div class="artifact-empty">正在等待第一份研究产物…</div>';
-    return;
+  updateStageVisual(stageIndex, record);
+  processStatus.classList.toggle('is-complete', isComplete);
+  processStatus.classList.toggle('is-failed', record.status === 'failed');
+  processStatus.querySelector('span').textContent = isComplete
+    ? '分析已完成'
+    : record.status === 'failed' ? '分析未完成' : record.status === 'queued' ? '等待开始' : '分析进行中';
+  if (isComplete) {
+    reportReadyNotice.classList.remove('hidden');
+  } else {
+    reportReadyNotice.classList.add('hidden');
   }
-  artifactStream.innerHTML = artifacts.slice(-5).reverse().map((artifact, index) => `
-    <div class="artifact-item${index === 0 ? ' is-latest' : ''}">
-      <i aria-hidden="true"></i>
-      <div>
-        <strong>${escapeHtml(artifact.title || '阶段产物')}</strong>
-        <p>${escapeHtml(artifact.preview || '产物已生成，等待下一阶段继续处理。')}</p>
-        <small>${Number(artifact.chars || 0).toLocaleString()} 字符 · 实时更新</small>
-      </div>
-    </div>`).join('');
+
+  liveArtifactCount.textContent = latest ? '最新更新' : isComplete ? '已完成' : '等待中';
+  liveArtifact.innerHTML = latest ? `
+    <article class="live-artifact-entry">
+      <div class="artifact-card-heading"><strong>${escapeHtml(artifacts.length ? latest.title || '最新阶段产物' : '正在研究')}</strong><span class="artifact-state-pill is-live">实时更新</span></div>
+      <p>${escapeHtml(latest.preview || '研究团队正在生成内容…')}</p>
+      <small>${Number(latest.chars || 0).toLocaleString()} 字符 · ${escapeHtml(record.phase || '研究中')}</small>
+      <button class="artifact-open-button" type="button" data-open-artifact="${escapeHtml(latest.id)}">查看当前内容</button>
+    </article>` : `<div class="artifact-empty">${isComplete ? '分析已完成，所有阶段产物已整理在下方。' : '研究产物生成后会显示在这里。'}</div>`;
+
+  const completedCount = visibleCompletedArtifacts.length + (isComplete && record.result ? 1 : 0);
+  artifactCount.textContent = `${completedCount} 份${missingDimensions.length ? ` · ${missingDimensions.length} 项未生成` : ''}`;
+  const missingCards = missingDimensions.map(({ title }) => `
+    <article class="artifact-item is-unavailable">
+      <div class="artifact-card-heading"><strong>${escapeHtml(title)}</strong><span class="artifact-state-pill is-unavailable">未生成</span></div>
+      <p>本次没有生成独立分析内容。请在完整研报中查看数据限制，不要用其他分析面代替。</p>
+    </article>`).join('');
+  const generatedCards = visibleCompletedArtifacts.slice().reverse().map((artifact) => `
+    <article class="artifact-item">
+      <div class="artifact-card-heading"><strong>${escapeHtml(artifact.title || '阶段报告')}</strong><span class="artifact-state-pill">已生成</span></div>
+      <p>${escapeHtml(artifact.preview || '报告内容已生成，可打开查看。')}</p>
+      <small>${Number(artifact.chars || 0).toLocaleString()} 字符</small>
+      <button class="artifact-open-button" type="button" data-open-artifact="${escapeHtml(artifact.id)}">查看报告</button>
+    </article>`).join('');
+  artifactStream.innerHTML = missingCards + generatedCards
+    || '<div class="artifact-empty">已生成的阶段报告会即时归档在这里。</div>';
+
+  if (isComplete && record.result) {
+    const completedAt = record.updated_at ? new Date(record.updated_at).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    finalReportCard.innerHTML = `
+      <article class="final-report-entry">
+        <div class="artifact-card-heading"><strong>${escapeHtml(record.ticker)} 完整投资研报</strong><span class="artifact-state-pill is-complete">已完成</span></div>
+        <p>${escapeHtml(field(record.result.decision_fields, 'executive_summary') || '完整研报已生成，包含技术面、基本面、新闻、情绪与风险分析。')}</p>
+        <small>${completedAt ? `${escapeHtml(completedAt)} 生成` : '刚刚生成'}</small>
+        <button class="artifact-open-button is-primary" type="button" data-open-final-report>查看完整报告</button>
+      </article>`;
+    finalReportCard.classList.remove('hidden');
+  } else {
+    finalReportCard.classList.add('hidden');
+    finalReportCard.innerHTML = '';
+  }
 }
 
 function startStageAnimation() {
   window.clearInterval(stageTimer);
   currentStage = 0;
   stages.forEach((stage, index) => stage.className = `stage${index === 0 ? ' active' : ''}`);
-  processCoreKicker.textContent = 'LIVE OUTPUT';
-  processCoreLabel.textContent = '准备中';
+  updateStageVisual(0);
   artifactCount.textContent = '0 份产物';
+  liveArtifactCount.textContent = '等待中';
+  liveArtifact.innerHTML = '<div class="artifact-empty">研究产物生成后会显示在这里。</div>';
   artifactStream.innerHTML = '<div class="artifact-empty">正在等待第一份研究产物…</div>';
+  finalReportCard.classList.add('hidden');
+  finalReportCard.innerHTML = '';
+  reportReadyNotice.classList.add('hidden');
+  processStatus.classList.remove('is-complete', 'is-failed');
+  processStatus.querySelector('span').textContent = '分析进行中';
 }
 
 function completeStages() {
@@ -638,8 +886,53 @@ function field(fields, name) {
   return fields?.[name] || '—';
 }
 
+function marketLabelForTicker(ticker) {
+  if (/^\d{6}(?:\.(?:SS|SZ|BJ))?$/.test(ticker)) return 'A 股';
+  if (/^\d{4,5}\.HK$/.test(ticker)) return '港股';
+  return '美股';
+}
+
+async function openProgressArtifact(artifactId) {
+  artifactDetailTicker.textContent = `${currentAnalysisRecord?.ticker || ''} · 阶段产物`;
+  artifactDetailTitle.textContent = '正在读取报告…';
+  artifactDetailDate.textContent = '';
+  artifactDetailContent.innerHTML = '<p>正在加载已生成的分析内容…</p>';
+  openModal(artifactDetailModal);
+  try {
+    const response = await fetch(`/api/analyses/${encodeURIComponent(currentAnalysisRecord.id)}/artifacts/${encodeURIComponent(artifactId)}`, { cache: 'no-store' });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '阶段报告暂时无法读取');
+    artifactDetailTicker.textContent = `${data.ticker} · 阶段报告`;
+    artifactDetailTitle.textContent = data.title;
+    artifactDetailDate.textContent = `分析日期 ${data.trade_date} · 内容随研究进度更新`;
+    artifactDetailContent.innerHTML = renderMarkdown(data.content || '本章节暂时没有可展示的内容。');
+  } catch (error) {
+    artifactDetailTitle.textContent = '报告暂时无法读取';
+    artifactDetailContent.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+  }
+}
+
+processPanel.addEventListener('click', (event) => {
+  const finalButton = event.target.closest('[data-open-final-report]');
+  if (finalButton && currentAnalysisRecord?.result) {
+    showReport(currentAnalysisRecord);
+    return;
+  }
+  const artifactButton = event.target.closest('[data-open-artifact]');
+  if (artifactButton && currentAnalysisRecord?.id) openProgressArtifact(artifactButton.dataset.openArtifact);
+});
+
+document.querySelector('#open-completed-report').addEventListener('click', () => {
+  if (currentAnalysisRecord?.result) showReport(currentAnalysisRecord);
+});
+document.querySelector('#artifact-detail-close').addEventListener('click', () => closeModal(artifactDetailModal));
+artifactDetailModal.addEventListener('click', (event) => { if (event.target === artifactDetailModal) closeModal(artifactDetailModal); });
+
 function showReport(record) {
-  const result = record.result;
+  const result = record.result || {};
+  const reports = result.reports || {};
+  const research = result.research || {};
+  const risk = result.risk || {};
   currentReportId = result?.report_id || record.id || '';
   reportDeleteButton.classList.toggle('hidden', !currentReportId);
   document.querySelector('#report-ticker').textContent = record.ticker;
@@ -653,15 +946,15 @@ function showReport(record) {
 
   const sections = [
     ['最终决策', result.final_report],
-    ['技术面分析', result.reports.market],
-    ['基本面分析', result.reports.fundamentals],
-    ['新闻分析', result.reports.news],
-    ['市场情绪', result.reports.sentiment],
-    ['看多观点', result.research.bull],
-    ['看空观点', result.research.bear],
-    ['研究结论', result.research.manager],
+    ['技术面分析', reports.market || '> 本次没有生成独立的技术面分析内容，请将此项视为缺失。'],
+    ['基本面分析', reports.fundamentals || '> 本次没有生成独立的基本面分析内容，请将此项视为缺失。'],
+    ['新闻分析', reports.news || '> 本次没有生成独立新闻分析报告。情绪分析中可能提及新闻标题，但不能替代新闻研究员的独立分析；请将此项视为缺失，不要据此推断新闻结论。'],
+    ['市场情绪', reports.sentiment || '> 本次没有生成独立的市场情绪分析内容，请将此项视为缺失。'],
+    ['看多观点', research.bull],
+    ['看空观点', research.bear],
+    ['研究结论', research.manager],
     ['交易方案', result.trader_report],
-    ['风险评估', [result.risk.aggressive, result.risk.neutral, result.risk.conservative].filter(Boolean).join('\n\n---\n\n')],
+    ['风险评估', [risk.aggressive, risk.neutral, risk.conservative].filter(Boolean).join('\n\n---\n\n')],
   ].filter(([, content]) => content);
 
   const nav = document.querySelector('#report-nav');
@@ -679,17 +972,9 @@ function showReport(record) {
     nav.appendChild(button);
   });
   activate(0);
-  processPanel.classList.add('hidden');
   openModal(reportPanel);
   reportCloseButton.focus();
-  loadHistoryPicker().then(() => {
-    if (!currentReportId) return;
-    const currentOption = [...historyReportSelect.options].find((option) => option.value === currentReportId);
-    if (currentOption) {
-      historyReportSelect.value = currentReportId;
-      historyOpenButton.disabled = false;
-    }
-  });
+  loadHistoryPicker(historyQuery.value.trim(), historyCurrentPage);
 }
 
 async function deleteCurrentReport() {
@@ -704,8 +989,7 @@ async function deleteCurrentReport() {
     if (!response.ok) throw new Error(data.detail || '删除研报失败');
     closeModal(reportPanel);
     currentReportId = '';
-    historyReportSelect.value = '';
-    await loadHistoryPicker(historyQuery.value.trim());
+    await loadHistoryPicker(historyQuery.value.trim(), historyCurrentPage);
   } catch (error) {
     reportDeleteButton.textContent = error.message;
   } finally {
@@ -717,7 +1001,6 @@ async function deleteCurrentReport() {
 reportDeleteButton.addEventListener('click', deleteCurrentReport);
 reportCloseButton.addEventListener('click', () => {
   closeModal(reportPanel);
-  restoreHistoryPickerState();
 });
 reportPanel.addEventListener('click', (event) => { if (event.target === reportPanel) closeModal(reportPanel); });
 
@@ -726,16 +1009,22 @@ async function poll(taskId) {
     const response = await fetch(`/api/analyses/${taskId}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('无法读取分析任务');
     const record = await response.json();
-    document.querySelector('#process-message').textContent = record.phase;
     renderProcessArtifacts(record);
     if (record.status === 'completed') {
       window.clearTimeout(pollTimer);
       completeStages();
-      showReport(record);
+      loadHistoryPicker();
       submitButton.disabled = false;
       return;
     }
-    if (record.status === 'failed') throw new Error(record.error || '分析失败');
+    if (record.status === 'failed') {
+      window.clearTimeout(pollTimer);
+      document.querySelector('#process-title').textContent = '分析暂未完成';
+      document.querySelector('#process-message').textContent = record.error || '分析遇到问题，请检查模型和数据源后重试。';
+      processStatus.classList.add('is-failed');
+      submitButton.disabled = false;
+      return;
+    }
     pollTimer = window.setTimeout(() => poll(taskId), 2500);
   } catch (error) {
     window.clearInterval(stageTimer);
@@ -758,15 +1047,22 @@ form.addEventListener('submit', async (event) => {
   }
   note.textContent = '分析任务启动后请保持页面打开。';
   submitButton.disabled = true;
+  const ticker = document.querySelector('#ticker').value.trim().toUpperCase();
+  currentAnalysisRecord = null;
   reportPanel.classList.add('hidden');
+  processStockTitle.textContent = `${ticker} 投资研究`;
+  processMarketBadge.textContent = marketLabelForTicker(ticker);
+  document.querySelector('#process-title').textContent = '研究团队正在协作';
+  document.querySelector('#process-message').textContent = '正在连接研究流水线，稍后会陆续出现阶段性产物。';
   processPanel.classList.remove('hidden');
   processPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
   startStageAnimation();
 
   const payload = {
-    ticker: document.querySelector('#ticker').value.trim(),
+    ticker,
     trade_date: document.querySelector('#trade-date').value,
-    asset_type: document.querySelector('#asset-type').value,
+    // 当前页面只提供股票研报入口；后端仍保留 crypto 能力供 API/历史任务兼容。
+    asset_type: 'stock',
     analysts: ['market', 'social', 'news', 'fundamentals'],
     model_profile_id: modelProfileId,
   };
@@ -791,7 +1087,6 @@ form.addEventListener('submit', async (event) => {
 
 document.querySelector('#new-analysis').addEventListener('click', () => {
   closeModal(reportPanel);
-  restoreHistoryPickerState();
   document.querySelector('#hero').scrollIntoView({ behavior: 'smooth' });
   document.querySelector('#ticker').focus();
 });

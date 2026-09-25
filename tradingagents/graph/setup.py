@@ -114,7 +114,10 @@ class GraphSetup:
         analyst_factories = {
             "market": lambda: create_market_analyst(self.quick_thinking_llm),
             "social": lambda: create_sentiment_analyst(self.quick_thinking_llm),
-            "news": lambda: create_news_analyst(self.quick_thinking_llm),
+            "news": lambda: create_news_analyst(
+                self.quick_thinking_llm,
+                max_tool_rounds=self.conditional_logic.max_tool_rounds,
+            ),
             "fundamentals": lambda: create_fundamentals_analyst(self.quick_thinking_llm),
         }
 
@@ -166,10 +169,13 @@ class GraphSetup:
         # 链（analyst1 -> ... -> analystN），是最大的延迟优化，因为四位分析师相互独立。
         for spec in plan.specs:
             workflow.add_edge(START, spec.agent_node)
+            destinations = [spec.tool_node, spec.clear_node]
+            if spec.key == "news":
+                destinations.append(spec.agent_node)
             workflow.add_conditional_edges(
                 spec.agent_node,
                 getattr(self.conditional_logic, f"should_continue_{spec.key}"),
-                [spec.tool_node, spec.clear_node],
+                destinations,
             )
             workflow.add_edge(spec.tool_node, spec.agent_node)
             workflow.add_edge(spec.clear_node, "Analyst Barrier")

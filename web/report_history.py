@@ -103,7 +103,8 @@ def list_reports(
     ticker: str = "",
     start_date: str = "",
     end_date: str = "",
-    limit: int = 50,
+    limit: int = 10,
+    offset: int = 0,
 ) -> dict[str, Any]:
     query_norm = query.strip().casefold()
     ticker_norm = ticker.strip().casefold()
@@ -124,9 +125,15 @@ def list_reports(
             **metadata,
             "title": "投资研究报告",
         })
-        if len(items) >= limit:
-            break
-    return {"reports": items, "total": len(items), "root": str(reports_root())}
+    total = len(items)
+    start = max(0, offset)
+    return {
+        "reports": items[start : start + max(1, limit)],
+        "total": total,
+        "offset": start,
+        "limit": max(1, limit),
+        "root": str(reports_root()),
+    }
 
 
 def get_report(report_id: str) -> dict[str, Any] | None:

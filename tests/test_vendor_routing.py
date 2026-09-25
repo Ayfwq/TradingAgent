@@ -98,6 +98,79 @@ class VendorRoutingTests(unittest.TestCase):
             result = interface.route_to_vendor("get_fundamentals", "AAPL", "2026-09-23")
         self.assertEqual(result, "YF_DATA")
 
+    def test_empty_news_from_first_vendor_falls_back_for_all_supported_markets(self):
+        for ticker in ("AAPL", "600519.SS", "0700.HK"):
+            with self.subTest(ticker=ticker):
+                _reset_config()
+                set_config({"data_vendors": {"news_data": "akshare,yfinance,alpha_vantage"}})
+                seen = []
+
+                def empty_news(symbol, *args, _seen=seen, **kwargs):
+                    _seen.append(("akshare", symbol))
+                    return f"未找到 {symbol} 的新闻。"
+
+                def yahoo_news(symbol, *args, _seen=seen, **kwargs):
+                    _seen.append(("yfinance", symbol))
+                    return f"## {symbol} 的新闻\n### 标题"
+
+                with self._route_method(
+                    "get_news",
+                    {
+                        "akshare": empty_news,
+                        "yfinance": yahoo_news,
+                        "alpha_vantage": mock.Mock(side_effect=AssertionError("must stop after success")),
+                    },
+                ):
+                    result = interface.route_to_vendor(
+                        "get_news", ticker, "2026-09-18", "2026-09-25"
+                    )
+
+                self.assertIn("标题", result)
+                self.assertEqual(seen, [("akshare", ticker), ("yfinance", ticker)])
+
+    def test_alpha_vantage_empty_feed_falls_back(self):
+        set_config({"data_vendors": {"news_data": "alpha_vantage,yfinance"}})
+        with self._route_method(
+            "get_news",
+            {
+                "alpha_vantage": lambda *a, **k: '{"items": 0, "feed": []}',
+                "yfinance": lambda *a, **k: "YF_NEWS",
+            },
+        ):
+            result = interface.route_to_vendor("get_news", "AAPL", "2026-09-18", "2026-09-25")
+        self.assertEqual(result, "YF_NEWS")
+
+    def test_all_empty_news_sources_return_explicit_unavailable_result(self):
+        set_config({"data_vendors": {"news_data": "akshare,yfinance,alpha_vantage"}})
+        with self._route_method(
+            "get_news",
+            {
+                "akshare": lambda *a, **k: "未找到 AAPL 的新闻。",
+                "yfinance": lambda *a, **k: "在 2026-09-18 至 2026-09-25 期间未找到 AAPL 的新闻。",
+                "alpha_vantage": lambda *a, **k: '{"items": 0, "feed": []}',
+            },
+        ):
+            result = interface.route_to_vendor("get_news", "AAPL", "2026-09-18", "2026-09-25")
+        self.assertIn("NEWS_UNAVAILABLE", result)
+        self.assertIn("akshare", result)
+        self.assertIn("yfinance", result)
+        self.assertIn("alpha_vantage", result)
+        self.assertIn("不要编造新闻", result)
+
+    def test_news_route_reports_actual_vendor(self):
+        set_config({"data_vendors": {"news_data": "akshare,yfinance"}})
+        with self._route_method(
+            "get_news",
+            {
+                "akshare": lambda *a, **k: "未找到 AAPL 的新闻。",
+                "yfinance": lambda *a, **k: "YF_NEWS",
+            },
+        ):
+            result, vendor = interface.route_to_vendor_with_source(
+                "get_news", "AAPL", "2026-09-18", "2026-09-25"
+            )
+        self.assertEqual((result, vendor), ("YF_NEWS", "yfinance"))
+
     def test_primary_error_is_logged_not_masked(self):
         # #989: primary errors + fallback no-data -> NO_DATA, but the failure
         # must be visible in logs (broken primary not hidden).

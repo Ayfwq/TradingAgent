@@ -36,7 +36,14 @@ class ConditionalLogic:
             1 for m in state.get(messages_key, []) if getattr(m, "tool_calls", None)
         )
 
-    def _cap_reached(self, state: AgentState, messages_key: str, tools_node: str, clear_node: str) -> str:
+    def _cap_reached(
+        self,
+        state: AgentState,
+        messages_key: str,
+        tools_node: str,
+        clear_node: str,
+        finalize_node: str | None = None,
+    ) -> str:
         """路由分析师：请求工具且未达到轮次上限时进入工具节点，否则清理消息并输出报告。"""
         last_message = state.get(messages_key, [])[-1] if state.get(messages_key) else None
         if (
@@ -50,6 +57,17 @@ class ConditionalLogic:
                 self.max_tool_rounds, tools_node,
             )
             return tools_node
+        if (
+            finalize_node
+            and last_message is not None
+            and getattr(last_message, "tool_calls", None)
+            and self._tool_rounds(state, messages_key) >= self.max_tool_rounds
+        ):
+            logger.warning(
+                "分析师 %s 已达到 %d 轮工具上限，进入强制总结 -> %s",
+                messages_key, self.max_tool_rounds, finalize_node,
+            )
+            return finalize_node
         logger.debug("分析师 %s 已完成工具轮次 -> %s", messages_key, clear_node)
         return clear_node
 
@@ -68,32 +86,42 @@ class ConditionalLogic:
 
     def should_continue_news(self, state: AgentState):
         """判断新闻分析是否继续。"""
-        return self._cap_reached(state, "news_messages", "tools_news", "Msg Clear News")
+        return self._cap_reached(
+            state,
+            "news_messages",
+            "tools_news",
+            "Msg Clear News",
+            finalize_node="News Analyst",
+        )
 
     def should_continue_fundamentals(self, state: AgentState):
         """判断基本面分析是否继续。"""
         return self._cap_reached(state, "fundamentals_messages", "tools_fundamentals", "Msg Clear Fundamentals")
 
     def should_continue_debate(self, state: AgentState) -> str:
-        """判断投资辩论是否继续。"""
+        """按辩论回复次数交替路由看多/看空研究员。"""
+        response_count = state["investment_debate_state"]["count"]
+        max_responses = 2 * self.max_debate_rounds
 
-        if (
-            state["investment_debate_state"]["count"] >= 2 * self.max_debate_rounds
-        ):  # 两位 Agent 往返 3 轮。
+        if response_count >= max_responses:
             logger.debug(
                 "投资辩论在 %d 次响应后完成（上限=%d）-> 研究经理",
-                state["investment_debate_state"]["count"], 2 * self.max_debate_rounds,
+                response_count, max_responses,
             )
             return "Research Manager"
-        if state["investment_debate_state"]["current_response"].startswith("Bull"):
+
+        # 辩论总是由 Bull 开始：奇数次回复意味着 Bull 刚完成发言，下一位应为 Bear；
+        # 偶数次回复意味着 Bear 刚完成发言，下一位应为 Bull。不要依赖回复文本前缀，
+        # 因为节点输出可能本地化（例如“看多分析师：...”）。
+        if response_count % 2 == 1:
             logger.debug(
                 "看多方发言（第 %d/%d 轮）-> 看空研究员",
-                state["investment_debate_state"]["count"], 2 * self.max_debate_rounds,
+                response_count, max_responses,
             )
             return "Bear Researcher"
         logger.debug(
             "看空方发言（第 %d/%d 轮）-> 看多研究员",
-            state["investment_debate_state"]["count"], 2 * self.max_debate_rounds,
+            response_count, max_responses,
         )
         return "Bull Researcher"
 

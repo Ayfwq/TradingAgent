@@ -72,6 +72,22 @@ def test_profile_update_without_key_preserves_secret(tmp_path):
     assert service.graph_overrides(created["id"])["llm_api_key"] == "secret-key"
 
 
+def test_saving_new_profile_keeps_existing_profile(tmp_path):
+    service = ModelProfileService(tmp_path)
+    existing = service.save(_payload())
+    added = service.save(_payload(
+        name="Xiaomi MIMO",
+        base_url="https://api.other.example/v1",
+        quick_model="mimo-v2.6-flash",
+        deep_model="mimo-v2.6-flash",
+        api_key="other-secret",
+    ))
+
+    assert {profile["id"] for profile in service.list()} == {existing["id"], added["id"]}
+    assert service.graph_overrides(existing["id"])["llm_api_key"] == "secret-key"
+    assert service.graph_overrides(added["id"])["llm_api_key"] == "other-secret"
+
+
 def test_profile_saves_discovered_models_from_unsaved_form(tmp_path):
     service = ModelProfileService(tmp_path)
     profile = service.save(_payload(discovered_models=["model-b", "model-a", "model-a"]))

@@ -3,9 +3,23 @@ from typing import Annotated
 
 from langchain_core.tools import tool
 
-from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.dataflows.interface import route_to_vendor, route_to_vendor_with_source
 
 logger = logging.getLogger(__name__)
+
+_VENDOR_LABELS = {
+    "akshare": "AkShare / 东方财富",
+    "yfinance": "Yahoo Finance（yfinance）",
+    "alpha_vantage": "Alpha Vantage",
+}
+
+
+def _include_source(result: str, vendor: str | None) -> str:
+    """Annotate fetched news with its actual provider, never the configured guess."""
+    if vendor:
+        label = _VENDOR_LABELS.get(vendor, vendor)
+        return f"新闻数据来源：{label}\n\n{result}"
+    return result
 
 
 @tool
@@ -29,7 +43,8 @@ def get_news(
         ticker, start_date, end_date,
     )
     try:
-        result = route_to_vendor("get_news", ticker, start_date, end_date)
+        result, vendor = route_to_vendor_with_source("get_news", ticker, start_date, end_date)
+        result = _include_source(result, vendor)
         logger.debug("get_news 返回 %d 个字符：%s", len(result), ticker)
         return result
     except Exception:
@@ -64,7 +79,10 @@ def get_global_news(
         curr_date, look_back_days, limit,
     )
     try:
-        result = route_to_vendor("get_global_news", curr_date, look_back_days, limit)
+        result, vendor = route_to_vendor_with_source(
+            "get_global_news", curr_date, look_back_days, limit
+        )
+        result = _include_source(result, vendor)
         logger.debug("get_global_news 返回 %d 个字符", len(result))
         return result
     except Exception:

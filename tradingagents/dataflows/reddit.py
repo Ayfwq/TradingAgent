@@ -45,6 +45,23 @@ _ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 DEFAULT_SUBREDDITS = ("wallstreetbets", "stocks", "investing")
 
 
+class _FetchFailure(list):
+    """Empty-list-compatible result that preserves why one subreddit failed."""
+
+    def __init__(self, detail: str):
+        super().__init__()
+        self.detail = detail
+
+
+def _error_detail(exc: Exception) -> str:
+    if isinstance(exc, HTTPError):
+        return f"HTTP {exc.code} {exc.reason}"
+    reason = getattr(exc, "reason", None)
+    if reason is not None:
+        return f"{type(exc).__name__}: {reason}"
+    return f"{type(exc).__name__}: {exc}"
+
+
 def _search_qs(ticker: str, limit: int) -> str:
     return urlencode({
         "q": ticker,
@@ -114,13 +131,15 @@ def _fetch_subreddit_rss(
             )
             time.sleep(wait)
             return _fetch_subreddit_rss(ticker, sub, limit, timeout, _retry=False)
-        logger.warning("获取 r/%s 的 Reddit RSS 失败 · %s：%s", sub, ticker, exc)
-        return []
+        detail = _error_detail(exc)
+        logger.warning("获取 r/%s 的 Reddit RSS 失败 · %s：%s", sub, ticker, detail)
+        return _FetchFailure(detail)
     except (OSError, http.client.HTTPException, ET.ParseError) as exc:
         # OSError 覆盖 URLError、TimeoutError 和连接重置；HTTPException 覆盖
         # 分块传输错误（IncompleteRead/BadStatusLine，#1024）。
-        logger.warning("获取 r/%s 的 Reddit RSS 失败 · %s：%s", sub, ticker, exc)
-        return []
+        detail = _error_detail(exc)
+        logger.warning("获取 r/%s 的 Reddit RSS 失败 · %s：%s", sub, ticker, detail)
+        return _FetchFailure(detail)
 
     posts = []
     for entry in root.findall("atom:entry", _ATOM_NS)[:limit]:
@@ -200,12 +219,17 @@ def fetch_reddit_posts(
     # 加密货币以 Yahoo 交易对（BTC-USD）的形式传入；搜索基础代码
     #（“BTC”）才能真正匹配讨论内容，而不是几乎搜不到结果。
     ticker = crypto_base(ticker) or ticker
+    subreddits = tuple(subreddits)
     blocks = []
     total_posts = 0
+    failures = []
     for i, sub in enumerate(subreddits):
         if i > 0:
             time.sleep(inter_request_delay)
         posts = _fetch_subreddit(ticker, sub, limit_per_sub, timeout)
+        if isinstance(posts, _FetchFailure):
+            failures.append((sub, posts.detail))
+            continue
         total_posts += len(posts)
         if not posts:
             blocks.append(f"r/{sub}：<过去 7 天未找到提及 {ticker.upper()} 的帖子>")
@@ -236,9 +260,23 @@ def fetch_reddit_posts(
             )
         blocks.append("\n".join(lines))
 
+    if total_posts == 0 and failures:
+        failure_summary = "; ".join(f"r/{sub}: {detail}" for sub, detail in failures)
+        if len(failures) == len(subreddits):
+            return f"<Reddit 数据源不可用：{failure_summary}>"
+        return (
+            f"<部分 Reddit 版块抓取失败：{failure_summary}；"
+            f"其他可访问版块在过去 7 天未找到提及 {ticker.upper()} 的帖子>"
+        )
     if total_posts == 0:
         return (
             f"<过去 7 天在 {', '.join(f'r/{s}' for s in subreddits)} 中未找到"
             f"提及 {ticker.upper()} 的 Reddit 帖子>"
+        )
+    if failures:
+        blocks.insert(
+            0,
+            "部分 Reddit 版块不可用："
+            + "; ".join(f"r/{sub}: {detail}" for sub, detail in failures),
         )
     return "\n\n".join(blocks)
