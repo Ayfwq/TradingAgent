@@ -10,6 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_INDEX_URL=${ALIYUN_PYPI} \
     UV_DEFAULT_INDEX=${ALIYUN_PYPI} \
+    UV_CACHE_DIR=/root/.cache/uv \
     UV_INDEX_STRATEGY=first-index \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1
@@ -21,10 +22,12 @@ WORKDIR /app
 # Install locked third-party dependencies first so source-only changes reuse the
 # expensive dependency layer. The project itself is installed after COPY . . .
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=cache,id=tradingagents-uv-cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev --no-install-project
 
 COPY . .
-RUN uv sync --frozen --no-dev --no-editable
+RUN --mount=type=cache,id=tradingagents-uv-cache,target=/root/.cache/uv,sharing=locked \
+    uv sync --frozen --no-dev --no-editable
 
 FROM ac2-registry.cn-hangzhou.cr.aliyuncs.com/ac2/base:ubuntu24.04-py312 AS runtime
 
