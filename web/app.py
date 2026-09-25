@@ -496,7 +496,10 @@ async def report_detail(report_id: str) -> dict:
 
 @app.delete("/api/reports/{report_id}")
 async def delete_report_detail(report_id: str) -> dict[str, bool]:
-    deleted = await asyncio.to_thread(delete_report, report_id)
+    # Do not remove ticker/date sidecars while a new analysis could be writing
+    # the same snapshot or memory entry before its archive appears.
+    async with _analysis_gate:
+        deleted = await asyncio.to_thread(delete_report, report_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="历史报告不存在或已损坏")
     logger.info("历史研报已删除：%s", report_id)

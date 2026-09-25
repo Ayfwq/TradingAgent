@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.dataflows.utils import safe_ticker_component
 
 _REPORT_ID_RE = re.compile(r"^(?P<ticker>.+)_(?P<stamp>\d{8}_\d{6})$")
+_REPORT_DELETE_LOCK = threading.Lock()
 _FIELD_RE = re.compile(r"\*\*(?P<name>[^*]+)\*\*:\s*(?P<value>[^\n]+)")
 
 _SECTION_FILES = {
@@ -176,6 +178,8 @@ def _delete_report_sidecars(ticker: str, trade_date: str) -> None:
     not by report ID. Keep them while a same-day report remains; otherwise remove
     them together with the last report for that key.
     """
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", trade_date):
+        return
     try:
         safe_ticker = safe_ticker_component(ticker)
     except ValueError:
@@ -214,6 +218,13 @@ def _delete_report_sidecars(ticker: str, trade_date: str) -> None:
 
 def delete_report(report_id: str) -> bool:
     """Delete a report and any remaining ticker/date analysis sidecars."""
+    # Serialize the sibling-report check and removal so concurrent deletes of
+    # every same-day report cannot each leave the shared sidecars behind.
+    with _REPORT_DELETE_LOCK:
+        return _delete_report_locked(report_id)
+
+
+def _delete_report_locked(report_id: str) -> bool:
     if not _REPORT_ID_RE.fullmatch(report_id):
         return False
     root = reports_root().resolve()

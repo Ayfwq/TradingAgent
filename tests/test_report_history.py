@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 from web import report_history
 
@@ -73,3 +74,34 @@ def test_delete_report_cleans_shared_sidecars_after_last_same_day_report(tmp_pat
     memory_contents = memory_log.read_text(encoding="utf-8")
     assert "AAPL" not in memory_contents
     assert "MSFT" in memory_contents
+
+
+def test_concurrent_deletes_cannot_leave_same_day_sidecars(tmp_path, monkeypatch):
+    monkeypatch.setitem(report_history.DEFAULT_CONFIG, "results_dir", str(tmp_path))
+    memory_log = tmp_path / "trading_memory.md"
+    monkeypatch.setitem(report_history.DEFAULT_CONFIG, "memory_log_path", str(memory_log))
+    report_root = tmp_path / "reports"
+    report_ids = ("NVDA_20260822_120000", "NVDA_20260822_130000")
+    for report_id in report_ids:
+        directory = report_root / report_id
+        directory.mkdir(parents=True)
+        (directory / "complete_report.md").write_text("# report", encoding="utf-8")
+        (directory / "metadata.json").write_text(
+            json.dumps({"ticker": "NVDA", "trade_date": "2026-08-21"}),
+            encoding="utf-8",
+        )
+
+    snapshot = tmp_path / "NVDA" / "TradingAgentsStrategy_logs" / "full_states_log_2026-08-21.json"
+    snapshot.parent.mkdir(parents=True)
+    snapshot.write_text('{"final_trade_decision":"Buy"}', encoding="utf-8")
+    memory_log.write_text(
+        "[2026-08-21 | NVDA | Buy | pending]\n\nDECISION:\nBuy",
+        encoding="utf-8",
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(report_history.delete_report, report_ids))
+
+    assert results == [True, True]
+    assert not snapshot.exists()
+    assert "NVDA" not in memory_log.read_text(encoding="utf-8")
