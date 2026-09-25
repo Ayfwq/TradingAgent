@@ -165,13 +165,11 @@ const historyFilter = document.querySelector('#history-filter');
 const historyQuery = document.querySelector('#history-query');
 const historyReportList = document.querySelector('#history-report-list');
 const historyPageControls = document.querySelector('#history-page-controls');
-const reportDeleteButton = document.querySelector('#report-delete');
 const reportCloseButton = document.querySelector('#report-close');
 const HISTORY_PAGE_SIZE = 10;
 let historyCurrentPage = 1;
 let historyTotal = 0;
 let historyLoadSequence = 0;
-let currentReportId = '';
 
 function closeModal(modal) {
   modal.classList.add('hidden');
@@ -206,14 +204,14 @@ function renderHistoryPicker(items, page, total) {
   if (!items.length) {
     historyReportList.innerHTML = '<div class="history-report-empty"><span class="history-empty-mark">⌕</span><strong>暂时没有匹配的研报</strong><p>可以更换股票代码搜索，或先生成一份新研报。</p></div>';
   } else {
-    historyReportList.innerHTML = items.map((item, index) => {
+    historyReportList.innerHTML = items.map((item) => {
       const generated = item.generated_at ? item.generated_at.replace('T', ' ').slice(0, 16) : '时间未知';
       const assetLabel = item.asset_type === 'crypto' ? 'DIGITAL ASSET' : 'EQUITY RESEARCH';
       return `<article class="history-report-card">
         <div class="history-report-card-top">
           <span class="history-report-code">${escapeHtml(item.ticker)}</span>
           <span class="history-report-kind">${assetLabel}</span>
-          <span class="history-report-index">${String((page - 1) * HISTORY_PAGE_SIZE + index + 1).padStart(2, '0')}</span>
+          <button class="history-report-delete danger-button" type="button" data-history-delete-id="${escapeHtml(item.id)}" data-history-delete-ticker="${escapeHtml(item.ticker)}">删除</button>
         </div>
         <h3>${escapeHtml(item.ticker)} <span>投资研究报告</span></h3>
         <div class="history-report-meta">
@@ -281,9 +279,32 @@ historyPageControls.addEventListener('click', (event) => {
   loadHistoryPicker(historyQuery.value.trim(), Number(button.dataset.historyPage));
 });
 historyReportList.addEventListener('click', (event) => {
+  const deleteButton = event.target.closest('[data-history-delete-id]');
+  if (deleteButton) {
+    deleteHistoricalReport(deleteButton.dataset.historyDeleteId, deleteButton.dataset.historyDeleteTicker, deleteButton);
+    return;
+  }
   const button = event.target.closest('[data-history-report-id]');
   if (button) openHistoricalReportById(button.dataset.historyReportId);
 });
+
+async function deleteHistoricalReport(reportId, ticker, button) {
+  if (!reportId || !confirm(`确认删除 ${ticker || '该股票'} 的这份研报？删除后无法恢复。`)) return;
+  button.disabled = true;
+  button.textContent = '删除中…';
+  try {
+    const response = await fetch(`/api/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || '删除研报失败');
+    await loadHistoryPicker(historyQuery.value.trim(), historyCurrentPage);
+  } catch (error) {
+    window.alert(error.message || '删除研报失败');
+    if (button.isConnected) {
+      button.disabled = false;
+      button.textContent = '删除';
+    }
+  }
+}
 
 const modelSettings = document.querySelector('#model-settings');
 const modelProfileSelect = document.querySelector('#model-profile');
@@ -933,8 +954,6 @@ function showReport(record) {
   const reports = result.reports || {};
   const research = result.research || {};
   const risk = result.risk || {};
-  currentReportId = result?.report_id || record.id || '';
-  reportDeleteButton.classList.toggle('hidden', !currentReportId);
   document.querySelector('#report-ticker').textContent = record.ticker;
   document.querySelector('#report-date').textContent = `分析日期 ${record.trade_date} · AI 自动生成`;
   document.querySelector('#decision').textContent = result.decision || field(result.decision_fields, 'rating');
@@ -977,28 +996,6 @@ function showReport(record) {
   loadHistoryPicker(historyQuery.value.trim(), historyCurrentPage);
 }
 
-async function deleteCurrentReport() {
-  if (!currentReportId) return;
-  const ticker = document.querySelector('#report-ticker').textContent;
-  if (!confirm(`确认删除 ${ticker} 的这份研报？删除后无法恢复。`)) return;
-  reportDeleteButton.disabled = true;
-  reportDeleteButton.textContent = '正在删除…';
-  try {
-    const response = await fetch(`/api/reports/${encodeURIComponent(currentReportId)}`, { method: 'DELETE' });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.detail || '删除研报失败');
-    closeModal(reportPanel);
-    currentReportId = '';
-    await loadHistoryPicker(historyQuery.value.trim(), historyCurrentPage);
-  } catch (error) {
-    reportDeleteButton.textContent = error.message;
-  } finally {
-    reportDeleteButton.disabled = false;
-    if (!reportDeleteButton.textContent.includes('失败')) reportDeleteButton.textContent = '删除研报';
-  }
-}
-
-reportDeleteButton.addEventListener('click', deleteCurrentReport);
 reportCloseButton.addEventListener('click', () => {
   closeModal(reportPanel);
 });

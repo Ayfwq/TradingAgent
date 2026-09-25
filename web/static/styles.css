@@ -425,7 +425,21 @@ footer { width: min(1180px, calc(100% - 40px)); margin: auto; padding: 30px 0; b
 .history-report-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .history-report-code { padding: 5px 8px; border: 1px solid #cfe5d2; border-radius: 8px; color: #28714f; background: #eff8f0; font: 750 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .history-report-kind { overflow: hidden; color: #93a398; font: 700 8px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .12em; text-overflow: ellipsis; white-space: nowrap; }
-.history-report-index { margin-left: auto; color: #b3c4b7; font: 700 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+.history-report-delete {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 5px 9px;
+  border: 1px solid #efd1cd;
+  border-radius: 8px;
+  color: #ad5b52;
+  background: #fff6f4;
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+.history-report-delete:hover { border-color: #e7aaa2; color: #9e443c; background: #fff0ed; }
+.history-report-delete:disabled { opacity: .65; cursor: wait; }
 .history-report-card h3 { overflow: hidden; margin: 0; color: #213d2d; font-size: 15px; letter-spacing: -.02em; text-overflow: ellipsis; white-space: nowrap; }
 .history-report-card h3 span { color: #557060; font-weight: 600; }
 .history-report-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
