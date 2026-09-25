@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.dataflows.utils import safe_ticker_component
 
 _REPORT_ID_RE = re.compile(r"^(?P<ticker>.+)_(?P<stamp>\d{8}_\d{6})$")
 _FIELD_RE = re.compile(r"\*\*(?P<name>[^*]+)\*\*:\s*(?P<value>[^\n]+)")
@@ -168,8 +169,51 @@ def get_report(report_id: str) -> dict[str, Any] | None:
     }
 
 
+def _delete_report_sidecars(ticker: str, trade_date: str) -> None:
+    """Remove persisted analysis copies when no archived report still owns them.
+
+    The state snapshot and decision-memory entry are keyed by ticker + trade date,
+    not by report ID. Keep them while a same-day report remains; otherwise remove
+    them together with the last report for that key.
+    """
+    try:
+        safe_ticker = safe_ticker_component(ticker)
+    except ValueError:
+        # Do not construct a path from malformed metadata.
+        return
+
+    state_root = (Path(DEFAULT_CONFIG["results_dir"]) / safe_ticker / "TradingAgentsStrategy_logs").resolve()
+    results_root = Path(DEFAULT_CONFIG["results_dir"]).resolve()
+    if state_root.is_relative_to(results_root):
+        state_snapshot = state_root / f"full_states_log_{trade_date}.json"
+        if state_snapshot.is_file():
+            state_snapshot.unlink()
+
+    memory_log = Path(DEFAULT_CONFIG.get("memory_log_path") or "").expanduser()
+    if not str(memory_log):
+        return
+    if not memory_log.is_file():
+        return
+
+    separator = "\n\n<!-- ENTRY_END -->\n\n"
+    original = memory_log.read_text(encoding="utf-8")
+    blocks = original.split(separator)
+    kept = []
+    for block in blocks:
+        first_line = block.strip().splitlines()[0] if block.strip() else ""
+        fields = first_line[1:-1].split("|") if first_line.startswith("[") and first_line.endswith("]") else []
+        if len(fields) >= 2 and fields[0].strip() == trade_date and fields[1].strip() == ticker:
+            continue
+        kept.append(block)
+    updated = separator.join(kept)
+    if updated != original:
+        temp_path = memory_log.with_suffix(memory_log.suffix + ".tmp")
+        temp_path.write_text(updated, encoding="utf-8")
+        temp_path.replace(memory_log)
+
+
 def delete_report(report_id: str) -> bool:
-    """Delete one complete report directory after validating its exact path."""
+    """Delete a report and any remaining ticker/date analysis sidecars."""
     if not _REPORT_ID_RE.fullmatch(report_id):
         return False
     root = reports_root().resolve()
@@ -178,5 +222,21 @@ def delete_report(report_id: str) -> bool:
         return False
     if not (directory / "complete_report.md").is_file():
         return False
+
+    match = _REPORT_ID_RE.fullmatch(report_id)
+    metadata = _metadata(directory, match.group("ticker"), match.group("stamp"))
+    ticker = str(metadata["ticker"])
+    trade_date = str(metadata["trade_date"])
+    same_day_reports_remain = any(
+        other_id != report_id
+        and str(other_metadata["ticker"]).casefold() == ticker.casefold()
+        and str(other_metadata["trade_date"]) == trade_date
+        for other_id, _other_directory, other_metadata in _iter_report_dirs()
+    )
+
+    # These legacy sidecars are shared by ticker/date, so deleting them while a
+    # sibling report still exists would erase data that report may rely on.
+    if not same_day_reports_remain:
+        _delete_report_sidecars(ticker, trade_date)
     shutil.rmtree(directory)
     return True
