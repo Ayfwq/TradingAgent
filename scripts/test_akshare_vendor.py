@@ -8,7 +8,6 @@
 """
 
 import tradingagents  # noqa: F401  (loads .env + NO_PROXY)
-
 from tradingagents.agents.utils.agent_utils import (
     get_balance_sheet,
     get_cashflow,

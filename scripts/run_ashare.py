@@ -17,7 +17,6 @@ from datetime import datetime
 from pathlib import Path
 
 import tradingagents  # noqa: F401  (loads .env)
-
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 

@@ -11,6 +11,7 @@ from copy import deepcopy
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 import requests
 from fastapi import FastAPI, HTTPException, Query
@@ -440,6 +441,19 @@ async def search_instruments(payload: InstrumentSearchRequest) -> dict:
             model_config = model_profile_service.graph_overrides(payload.model_profile_id)
         except KeyError as exc:
             raise HTTPException(status_code=400, detail="所选研究模型不存在，请重新选择") from exc
+    if model_config:
+        endpoint_host = urlparse(model_config.get("backend_url", "")).netloc
+        logger.info(
+            "Instrument search model route: profile_id=%s endpoint=%s model=%s",
+            payload.model_profile_id,
+            endpoint_host,
+            model_config.get("quick_think_llm", ""),
+        )
+    elif payload.use_ai:
+        logger.warning(
+            "Instrument search has no selected model profile: profile_id=%s",
+            payload.model_profile_id,
+        )
     try:
         result = await asyncio.to_thread(
             instrument_search_service.search,

@@ -6,7 +6,6 @@ create_llm_client(provider, model, base_url) -> get_llm() -> invoke。
 """
 
 import tradingagents  # noqa: F401  (loads .env)
-
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.llm_clients import create_llm_client
 

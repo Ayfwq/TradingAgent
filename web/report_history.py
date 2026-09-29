@@ -16,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.dataflows.utils import safe_ticker_component
+from tradingagents.default_config import DEFAULT_CONFIG
 
 _REPORT_ID_RE = re.compile(r"^(?P<ticker>.+)_(?P<stamp>\d{8}_\d{6})$")
 _REPORT_DELETE_LOCK = threading.Lock()

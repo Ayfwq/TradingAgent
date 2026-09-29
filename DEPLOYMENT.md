@@ -1,6 +1,6 @@
 # TradingAgents 部署说明
 
-本文档适用于中国大陆的 Ubuntu 22.04 / 24.04 服务器。项目使用 `uv` 锁定 Python 依赖，并通过 Docker Compose 运行 Web 服务与 AI 资讯采集 Worker。
+本文档适用于中国大陆的 Ubuntu 22.04 / 24.04 服务器。服务器需要 Git、Docker Engine 和 Docker Compose v2 插件。项目使用 `uv.lock` 锁定 Python 依赖；服务器每次从 GitHub 的 `master` 分支拉取源码，在本地增量构建镜像，再由 Docker Compose 运行 Web、资讯 Worker、PostgreSQL 和 Prometheus。服务器无需单独安装 Python 或 uv。
 
 ## 仓库中应该提交的内容
 
@@ -30,15 +30,16 @@ Dockerfile 的构建下载仅使用：
 
 `uv.lock` 同样应由上述索引生成。请勿把 Dockerfile 的基础镜像改回 Docker Hub，也不要增加额外 Python 索引，否则会破坏“仅阿里源”的构建约束。
 
-## 首次部署
+## 首次部署（在服务器执行）
 
 ```bash
-git clone https://github.com/Ayfwq/TradingAgent.git
+git clone --branch master https://github.com/Ayfwq/TradingAgent.git
 cd TradingAgent
 cp .env.example .env
+chmod 600 .env
 ```
 
-编辑 `.env`，至少填写一个模型供应商的 API Key，并设置对应模型。例如：
+编辑 `.env`，至少填写一个模型供应商的 API Key，并设置对应模型。务必给 PostgreSQL 设置独立的强密码；默认连接串直接使用此密码，建议用 `openssl rand -hex 24` 生成，避免 URL 特殊字符。例如：
 
 ```dotenv
 OPENAI_API_KEY=替换为真实密钥
@@ -46,7 +47,8 @@ TRADINGAGENTS_LLM_PROVIDER=openai
 TRADINGAGENTS_DEEP_THINK_LLM=gpt-5.5
 TRADINGAGENTS_QUICK_THINK_LLM=gpt-5.4-mini
 TRADINGAGENTS_OUTPUT_LANGUAGE=Chinese
-TRADINGAGENTS_WEB_PORT=8000
+POSTGRES_PASSWORD=这里填写随机生成的十六进制密码
+TRADINGAGENTS_WEB_PORT=5000
 ```
 
 中国大陆数据源可使用：
@@ -56,15 +58,13 @@ TRADINGAGENTS_WEB_PORT=8000
 TRADINGAGENTS_DATA_VENDORS={"core_stock_apis":"akshare,yfinance,alpha_vantage","technical_indicators":"akshare,yfinance","fundamental_data":"akshare,yfinance,alpha_vantage","news_data":"akshare,yfinance,alpha_vantage","macro_data":"akshare,fred"}
 ```
 
-构建并启动：
+首次构建并启动：
 
 ```bash
-docker compose build
-docker compose up -d
-docker compose ps
-curl http://127.0.0.1:8000/health
-curl http://127.0.0.1:8000/metrics
-curl http://127.0.0.1:8000/api/news/health
+bash scripts/deploy.sh
+curl http://127.0.0.1:5000/health
+curl http://127.0.0.1:5000/metrics
+curl http://127.0.0.1:5000/api/news/health
 ```
 
 浏览器访问 `http://服务器公网IP:5000`。请在阿里云安全组中只开放实际需要的端口。
@@ -74,14 +74,30 @@ curl http://127.0.0.1:8000/api/news/health
 - `tradingagents`：FastAPI Web（股票研报 + AI 资讯页面 `/news`）；
 - `news-worker`：AI 资讯采集 Worker，共用 `tradingagents_data` 卷，每 15 分钟采集一轮。
 
-## 更新部署
+## 后续更新（在服务器执行）
+
+在开发机提交并推送到 GitHub 的 `master` 分支后，在服务器仓库目录执行：
 
 ```bash
-git pull --ff-only
-docker compose build
-docker compose up -d --remove-orphans
-docker image prune -f
+bash scripts/deploy.sh
 ```
+
+脚本会拒绝覆盖服务器上的未提交改动，使用 fast-forward 拉取 `origin/master`，校验 Compose 配置，构建一次共享的应用镜像，更新容器并等待健康检查。仅源码变化时 Docker 会复用锁定依赖的镜像层；只有 `pyproject.toml` 或 `uv.lock` 等依赖输入变化时才重新安装依赖。`.env` 和 Docker 命名卷不在 Git 中，更新时保留。不要用 `docker compose down -v` 更新。
+
+如需服务器**自动**拉取 GitHub，可在服务器上为有 Docker 权限的部署用户添加定时任务，例如每 5 分钟检查一次：
+
+```bash
+crontab -e
+# 添加一行（把路径换成服务器上 git clone 的绝对路径）：
+*/5 * * * * /usr/bin/flock -n /tmp/tradingagent-deploy.lock /usr/bin/bash /srv/TradingAgent/scripts/deploy.sh --only-if-changed >> /srv/TradingAgent/deploy.log 2>&1
+```
+
+`--only-if-changed` 在 GitHub 代码已成功部署时跳过构建和重启；部署失败后下次会重试。`flock` 防止上一次构建尚未结束时并发部署。`deploy.log` 和记录上次成功版本的 `.deploy-revision` 被 `.gitignore` 忽略，不会提交到 Git。上面的路径和用户应按实际服务器调整。首次部署仍需手动运行一次脚本（它会写入成功版本记录）。
+
+如果原服务器已经使用旧版 Compose 的默认 PostgreSQL 密码，第一次更新前需在服务器 `.env` 中填入**现有数据库密码**，否则现有数据卷中的数据库不会接受连接。PostgreSQL 初始化后的密码不会随 `.env` 自动更改；轮换密码时需要先在数据库中修改角色密码，再同步修改 `.env`。
+
+需要更新 Python 依赖时，在开发机修改 `pyproject.toml`，运行 `uv lock`，一起提交 `uv.lock`。服务器仍只运行上述脚本。若服务器无法访问 Docker Hub，还需给 PostgreSQL 和 Prometheus 镜像配置可用的 Docker Registry 镜像加速；Dockerfile 内的 Python 基础镜像和 PyPI 已使用阿里云源。
+PostgreSQL 与 Prometheus 的镜像版本也固定在 `docker-compose.yml`；升级这些服务时先安排备份并单独修改版本。
 
 ## 运维命令
 
@@ -93,8 +109,7 @@ docker compose restart
 docker compose down
 ```
 
-持久数据保存在 Docker 卷 `tradingagents_data`（研报/缓存）和
-`tradingagents_tradingagents_postgres_data`（资讯 PostgreSQL）中。普通更新或重新构建镜像不会删除这些卷。
+持久数据保存在 Compose 命名卷 `tradingagents_data`（研报/缓存）、`tradingagents_postgres_data`（资讯 PostgreSQL）和 `prometheus_data`（监控历史）中。实际 Docker 卷名前还有 Compose 项目名前缀，可用 `docker volume ls` 查询。普通更新或重新构建镜像不会删除这些卷。
 
 ## 日志策略
 

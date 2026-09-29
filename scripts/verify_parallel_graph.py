@@ -14,7 +14,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
 from tradingagents.graph.trading_graph import TradingAgentsGraph

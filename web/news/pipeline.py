@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 from hashlib import sha1
 
-from web.metrics import LLM_REQUESTS_TOTAL, LLM_REQUEST_DURATION_SECONDS, NEWS_AI_SUMMARIES_TOTAL
+from web.metrics import LLM_REQUEST_DURATION_SECONDS, LLM_REQUESTS_TOTAL, NEWS_AI_SUMMARIES_TOTAL
 from web.news.config import (
     CATEGORY_KEYWORDS,
     CATEGORY_LABELS,

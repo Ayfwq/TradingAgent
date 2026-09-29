@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 import sqlite3
 import threading
@@ -175,13 +174,11 @@ class _PostgresCursor:
             return None
         normalized = []
         for value in row:
-            if isinstance(value, datetime):
-                normalized.append(value.isoformat())
-            elif hasattr(value, "isoformat") and value.__class__.__name__ == "date":
+            if isinstance(value, datetime) or hasattr(value, "isoformat") and value.__class__.__name__ == "date":
                 normalized.append(value.isoformat())
             else:
                 normalized.append(value)
-        return _CompatRow(zip([d.name for d in self._cursor.description], normalized))
+        return _CompatRow(zip([d.name for d in self._cursor.description], normalized, strict=True))
 
     def fetchone(self):
         return self._row(self._cursor.fetchone())

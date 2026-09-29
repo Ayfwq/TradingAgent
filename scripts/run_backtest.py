@@ -25,7 +25,7 @@ import json
 import os
 import sys
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -122,7 +122,7 @@ def main() -> int:
             row[f"alpha_{hold}d"] = round(alpha, 6) if alpha is not None else None
             row[f"days_{hold}d"] = days
         rows.append(row)
-        print(f"  结果：raw={row.get('raw_%dd' % holds[0])}")
+        print(f"  结果：raw={row.get(f'raw_{holds[0]}d')}")
 
     df = pd.DataFrame(rows)
     out_csv = Path(args.out) if args.out else Path(scratch) / "backtest_results.csv"

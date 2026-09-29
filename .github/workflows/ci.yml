@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 concurrency:
@@ -10,6 +10,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  deployment-config:
+    name: Docker Compose configuration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose file
+        run: |
+          cp .env.example .env
+          POSTGRES_PASSWORD=ci-validation-password docker compose config --quiet
+
   test:
     name: tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest

@@ -1,10 +1,10 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.15-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tradingagents}
       POSTGRES_USER: ${POSTGRES_USER:-tradingagents}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tradingagents_local_change_me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - tradingagents_postgres_data:/var/lib/postgresql/data
     ports:
@@ -20,6 +20,7 @@ services:
       - no-new-privileges:true
 
   tradingagents:
+    image: tradingagents:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -28,8 +29,8 @@ services:
     environment:
       TRADINGAGENTS_LOG_DIR: /data/runtime-logs/web
       TRADINGAGENTS_LOG_RETENTION_DAYS: "3"
-      NEWS_DATABASE_URL: ${NEWS_DATABASE_URL:-postgresql://${POSTGRES_USER:-tradingagents}:${POSTGRES_PASSWORD:-tradingagents_local_change_me}@postgres:5432/${POSTGRES_DB:-tradingagents}}
-      TRADINGAGENTS_CHECKPOINT_DATABASE_URL: ${TRADINGAGENTS_CHECKPOINT_DATABASE_URL:-postgresql://${POSTGRES_USER:-tradingagents}:${POSTGRES_PASSWORD:-tradingagents_local_change_me}@postgres:5432/${POSTGRES_DB:-tradingagents}}
+      NEWS_DATABASE_URL: ${NEWS_DATABASE_URL:-postgresql://${POSTGRES_USER:-tradingagents}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-tradingagents}}
+      TRADINGAGENTS_CHECKPOINT_DATABASE_URL: ${TRADINGAGENTS_CHECKPOINT_DATABASE_URL:-postgresql://${POSTGRES_USER:-tradingagents}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-tradingagents}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -54,16 +55,14 @@ services:
 
   # AI 资讯采集 Worker：与 web 服务共用同一镜像和数据卷，独立常驻进程。
   news-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: tradingagents:local
     command: ["python", "-m", "web.news_worker", "--metrics"]
     env_file:
       - .env
     environment:
       TRADINGAGENTS_LOG_DIR: /data/runtime-logs/news-worker
       TRADINGAGENTS_LOG_RETENTION_DAYS: "3"
-      NEWS_DATABASE_URL: ${NEWS_DATABASE_URL:-postgresql://${POSTGRES_USER:-tradingagents}:${POSTGRES_PASSWORD:-tradingagents_local_change_me}@postgres:5432/${POSTGRES_DB:-tradingagents}}
+      NEWS_DATABASE_URL: ${NEWS_DATABASE_URL:-postgresql://${POSTGRES_USER:-tradingagents}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-tradingagents}}
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,7 +71,7 @@ services:
     ports:
       # 9091 可能被本机其他服务占用；容器内仍固定使用 9091，Prometheus
       # 通过 Compose 网络访问 news-worker:9091，不受宿主机端口影响。
-      - "${TRADINGAGENTS_NEWS_METRICS_PORT:-9092}:9091"
+      - "127.0.0.1:${TRADINGAGENTS_NEWS_METRICS_PORT:-9092}:9091"
     restart: unless-stopped
     init: true
     stop_grace_period: 30s
@@ -96,9 +95,9 @@ services:
 
   # Prometheus 监控服务
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.14.0
     ports:
-      - "9090:9090"
+      - "127.0.0.1:${TRADINGAGENTS_PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
